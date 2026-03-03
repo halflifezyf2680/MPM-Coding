@@ -8,31 +8,29 @@ English | [中文](README_ZH.md)
 
 ---
 
-## Industry Status
+## AI Coding That Survives Reality
 
-The rise of AI coding tools has lowered the programming barrier, but also exposed some issues: many projects perform well in demos, yet lack systematic consideration for the following engineering concerns in production:
+AI coding is fun until you try it on a real repo:
 
-- **Reproducibility**: Can execution results be reliably reproduced?
-- **Fault Recovery**: Can execution resume from checkpoints after failure?
-- **Permission Boundaries**: Are default permissions restrictive enough? Can privilege escalation be prevented?
-- **Acceptance & Audit**: Are there clear acceptance criteria? Are operations traceable?
-- **Self-Iteration**: How does state progress? What's the method?
+- The model forgets context ("where is the code?")
+- It edits based on guesses ("this should be fine")
+- Long tasks drift, skip steps, or die halfway
+- Later you cannot answer "what changed and why?"
 
-Common patterns in current AI coding practice:
-- Relying on natural-language workflows and agent templates with insufficient enforcement
-- LLM-generated documentation that appears professional but fails to form a verifiable system
-- Users struggle to assess the reliability of LLM-generated content
+MPM is not trying to make the LLM "smarter" or "better at chatting". That is the model's job.
+MPM makes the work *finishable*: locate first (`code_search`), check impact (`code_impact`), run long tasks as a phased chain with gates (`task_chain`), then store the why (`memo`).
 
-**Core Insight**: LLM engineering isn't about stacking prompts or multi-agent orchestration—it requires a **programmatic framework**: information cleaning, externalized state, workflow state machines, pre-verification, clear tool boundaries, and solidified + retrievable memory.
+In AI coding, "smart" usually means "steady": solves real problems, leaves a trail, can resume, with fewer guesses and fewer misses.
 
-The tooling framework determines the upper bound of delivery capability. LLM is the driver.
+Even if your git history gets messy (or you rebuild the repo), the reasoning trail can still be there: `memo` stores the why in `.mpm-data/`.
+Back up `.mpm-data/` and you can usually reconstruct faster (often cleaner) with AI.
 
 ---
 
 ## What is MPM?
 
-MPM is an **MCP engineering layer** that upgrades AI coding from "chatting" to "controlled delivery workflow".
-You can start with almost zero cognitive overhead: initialize first, then apply `_MPM_PROJECT_RULES.md` as your system rules.
+MPM is a set of MCP tools + rules for long-running, high-signal AI coding.
+Initialize once, then paste `_MPM_PROJECT_RULES.md` into your client's system rules.
 
 ### 🚀 30-Second Start (Do This First)
 
@@ -48,10 +46,10 @@ If you do this first, you can start effectively without learning every tool in a
 
 | Traditional Approach | MPM Approach |
 |---------------------|--------------|
-| `grep "Login"` → 500 results | `code_search("Login")` → exact file:line |
+| `grep "some symbol"` → 500 results | `code_search("some symbol")` → exact file:line |
 | "I think this change should work" | `code_impact` → full call chain analysis |
 | Starting from scratch every session | `system_recall` → cross-session memory |
-| AI improvises freely | `task_chain` → structured task execution |
+| Long tasks drift or stop halfway | `task_chain` → long-running task chain with gates |
 
 ### Practical Workflow: One Complete Loop (Example)
 
@@ -62,7 +60,7 @@ Below is a copy-paste ready example. Paste it into any MCP client to run.
 ```text
 Read _MPM_PROJECT_RULES.md and follow it.
 
-Task: Fix the Login callback idempotency issue.
+Task: Fix <the issue you actually have>.
 Requirements:
 1. Locate the code first
 2. Analyze impact scope
@@ -78,7 +76,7 @@ The AI will automatically execute: `initialize_project` → `code_search` → `c
 Read _MPM_PROJECT_RULES.md and follow it.
 
 Use task_chain to complete the following task:
-Task: Fix the Login callback idempotency issue.
+Task: Fix <the issue you actually have>.
 
 Phase requirements:
 1. Locate phase: Use code_search to find the target function
@@ -104,42 +102,12 @@ Report results after each phase and wait for confirmation before proceeding.
 
 ---
 
-## Key Features
+## What You Get
 
-### 1. AST-based Precision, Not Text Search
-
-```text
-You: Search for Login function
-AI: ### About Login
-    Best match: src/auth/login.go L45-67
-    ID: func:src/auth/login.go::Login
-    Signature: func Login(ctx context.Context, cred Credentials) (*Token, error)
-```
-
-**Powered by**: Rust AST engine + `canonical_id` for disambiguation
-
-### 2. Complete Call Chain Tracking
-
-```text
-You: Analyze impact of modifying SessionManager
-AI: CODE_IMPACT_REPORT
-    Risk Level: HIGH
-    Direct Impact: 4 functions
-    Indirect Impact: 23 functions (3-layer call chain)
-    
-    Modification Checklist:
-    ▶ [core/session.go:100-150] MODIFY_TARGET
-    ▶ [api/handler.go:45-80] VERIFY_CALLER
-    ▶ [service/auth.go:200-250] VERIFY_CALLER
-```
-
-### 3. Cross-Session Memory Persistence
-
-```text
-You: Why did we change timeout to 30s last time?
-AI: (system_recall) Memo from 2024-01-15:
-    "Changed timeout from 10s to 30s due to Alibaba Cloud ECS cold start delay"
-```
+- Find the right code faster (`code_search`, `project_map`, `flow_trace`)
+- Change with fewer surprises (`code_impact`)
+- Run long tasks with checkpoints (`task_chain`, `system_hook`)
+- Keep a usable change log (`memo`, `system_recall`)
 
 ---
 
@@ -163,7 +131,7 @@ Point to the build output: `mcp-server-go/bin/mpm-go(.exe)`
 
 ```text
 Initialize project
-Help me analyze and fix the Login callback idempotency issue
+Help me locate and fix <your issue>, and follow _MPM_PROJECT_RULES.md
 ```
 
 After initialization, MPM generates `_MPM_PROJECT_RULES.md` automatically. Treat it as the project's operating playbook:
@@ -185,94 +153,14 @@ Notes:
 - Output directory is fixed: `mpm-release/MyProjectManager`
 - Each run removes previous `mpm-release` first, then rebuilds clean package contents
 
----
-
-## Tool Quick Reference
-
-| Trigger | Tool | Purpose |
-|---------|------|---------|
-| `mpm init` | `initialize_project` | Project binding & AST indexing (supports `force_full_index`) |
-| `mpm index status` | `index_status` | Check background indexing progress/heartbeat/DB size |
-| `mpm search` | `code_search` | AST-based symbol lookup |
-| `mpm impact` | `code_impact` | Call chain impact analysis |
-| `mpm map` | `project_map` | Project structure + heat map |
-| `mpm flow` | `flow_trace` | Business flow trace (entry/upstream/downstream) |
-| `mpm chain` | `task_chain` | Protocol state machine driven (linear/develop/debug/refactor), supporting gates & sub-tasks |
-| `mpm memo` | `memo` | Change documentation |
-| `mpm recall` | `system_recall` | Memory retrieval |
-| `mpm persona` | `persona` | Switch AI personality |
-| `mpm timeline` | `open_timeline` | Project evolution visualization |
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        MCP Client                           │
-│              (Claude Code / Cursor / Windsurf)              │
-└─────────────────────────┬───────────────────────────────────┘
-                          │ MCP Protocol
-┌─────────────────────────▼───────────────────────────────────┐
-│                     Go MCP Server                           │
-├──────────────┬──────────────┬───────────────┬───────────────┤
-│  Perception  │  Scheduling  │    Memory     │   Enhancement │
-│ code_search  │ manager_     │ memo          │ persona       │
-│ code_impact  │ hooks        │ system_recall │ open_timeline │
-│ project_map  │ task_chain   │ known_facts   │               │
-└──────────────┴──────────────┴───────────────┴───────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────────┐
-│                   Rust AST Indexer                          │
-│  • Tree-sitter multi-language parsing (Go/Python/JS/TS/...) │
-│  • canonical_id for precise identification                  │
-│  • callee_id for exact call chains                          │
-│  • DICE complexity algorithm                                │
-└─────────────────────────────────────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────────┐
-│                SQLite multi-db (.mpm-data/*)                │
-│  • symbols.db: canonical_id/scope_path/callee_id            │
-│  • mcp_memory.db: memos/tasks/known_facts                    │
-│  • arch-ast.db: revisions/nodes/edges/proposals/events       │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## AST Indexing Core Fields
-
-MPM's AST engine maintains **precise call chains**:
-
-| Field | Example | Value |
-|-------|---------|-------|
-| `canonical_id` | `func:core/session.go::GetSession` | Globally unique, no ambiguity |
-| `scope_path` | `SessionManager::GetSession` | Hierarchical scope |
-| `callee_id` | `func:core/db.go::Query` | Exact call chain (not guessing) |
-
-**Result**: `code_impact` supports **3-layer BFS traversal**, showing complete impact propagation.
-
----
-
-## Performance Comparison
-
-| Metric | Without MPM | With MPM |
-|--------|-------------|----------|
-| Symbol location | 10+ search steps | 1 exact hit |
-| First-step accuracy | 0% | 100% |
-| Impact assessment | Based on guessing | AST call chain |
-| Token consumption | 4000+ | ~800 |
-| Context recovery | Start from zero | Memory recall |
-
-See [MANUAL.md](./docs/MANUAL.md#performance-comparison) for details.
 
 ---
 
 ## Documentation
 
-- **[MANUAL.md](./docs/MANUAL.md)** - Complete manual (tools + best practices + case studies)
+- **[MANUAL.md](./docs/MANUAL.md)** - Complete manual (all 13 tools + best practices + case studies)
+- **[MANUAL_ZH.md](./docs/MANUAL_ZH.md)** - 中文版完整手册
 - **[README_ZH.md](./README_ZH.md)** - 中文版
-- **[MANUAL_ZH.md](./docs/MANUAL_ZH.md)** - 中文版手册
 
 ---
 

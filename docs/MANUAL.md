@@ -18,30 +18,44 @@
 
 ## 1. Core Concepts
 
-### 1.1 What Problems Does MPM Solve?
+### 1.1 Core Concepts at a Glance
 
-Three major pain points in AI coding:
+This section is not a tool list. It explains the operating model behind MPM:
 
-| Pain Point | Symptom | MPM Solution |
-|------------|---------|--------------|
-| **Context Lost** | AI doesn't know where code is | `code_search` AST precision |
-| **Blind Changes** | Fixed here, broke there | `code_impact` call chain analysis |
-| **Memory Loss** | Start from zero every session | `memo` + `system_recall` |
+1. Fix the process (locate first, assess impact first, then edit)
+2. Fix task state (long tasks are phased, gated, and resumable)
+3. Fix decision memory (store why, not only what)
 
-### 1.2 Three-Layer Architecture
+In practice, it maps to these core concepts:
+
+| Core Concept | One-line Meaning | Main Tools | Practical Result |
+|------------|---------|--------------|------------------|
+| **Project anchoring** | Bind session to the correct project root first | `initialize_project` | Avoid indexing/writing in wrong directories |
+| **Locate before edit** | Find real entry points and symbols before changing code | `project_map` / `flow_trace` / `code_search` | Less random file-hopping |
+| **Impact before change** | See caller/callee impact before editing functions | `code_impact` | Fewer surprise breakages |
+| **Task state machine** | Run long work in phases with explicit gates | `task_chain` | Long tasks stay stable and reviewable |
+| **Suspend/resume on blockers** | Pause when blocked and resume with context later | `system_hook` | Interruptions do not reset progress |
+| **Memory as audit trail** | Record why decisions were made | `memo` / `system_recall` / `known_facts` | Better replay, migration, and reconstruction |
+
+### 1.2 Execution Loop (Runtime View)
+
+In practice, the core concepts usually run in this order:
 
 ```
-Perception      Scheduling      Memory
-────────────────────────────────────────
-code_search     manager_hooks     memo
-code_impact     task_chain        system_recall
-project_map     index_status      known_facts
-flow_trace
+initialize_project
+  -> project_map / flow_trace (optional orientation)
+  -> code_search (pinpoint symbols)
+  -> code_impact (check impact before edits)
+  -> task_chain (recommended for long tasks, with phases/gates)
+  -> system_hook (suspend/resume when blocked)
+  -> implement + test
+  -> memo (record the why)
+  -> system_recall / known_facts (reuse in future sessions)
 ```
 
-- **Perception**: See code (locate, analyze, map)
-- **Scheduling**: Manage tasks (plan, execute, checkpoint)
-- **Memory**: Store experience (memo, recall, rules)
+- **Short tasks**: `code_search -> code_impact -> edit/test -> memo`
+- **Long tasks**: add `task_chain`; use `system_hook` when blocked
+- **Main goal**: every step stays explainable, resumable, and auditable
 
 ### 1.3 AST Indexing Principles
 
@@ -59,21 +73,103 @@ MPM uses a Rust AST engine to parse code, maintaining three core fields:
 
 ## 2. Tool Reference
 
-### 2.1 Code Location (4 tools)
+### 2.0 Tool Inventory (13 Tools)
 
-#### project_map - Project Map
+| # | Tool Name | Category | Description |
+|---|-----------|----------|-------------|
+| 1 | `initialize_project` | System | Initialize project environment and database |
+| 2 | `index_status` | System | Check background AST indexing status |
+| 3 | `project_map` | Perception | Project structure navigation map |
+| 4 | `flow_trace` | Perception | Business flow trace (entry/upstream/downstream) |
+| 5 | `code_search` | Perception | AST-based symbol lookup with precise location |
+| 6 | `code_impact` | Perception | Call chain impact analysis |
+| 7 | `task_chain` | Scheduling | Protocol state machine for multi-step tasks |
+| 8 | `system_hook` | Scheduling | Create/list/release todo hooks (unified tool) |
+| 9 | `memo` | Memory | Record change documentation (SSOT) |
+| 10 | `system_recall` | Memory | Retrieve historical decisions and changes |
+| 11 | `known_facts` | Memory | Archive verified rules and pitfall experiences |
+| 12 | `persona` | Enhancement | AI personality management |
+| 13 | `open_timeline` | Enhancement | Generate and open project evolution timeline |
 
-**Triggers**: `mpm map`, `mpm structure`
+---
 
-**Purpose**: First step when taking over a new project, quickly build understanding.
+### 2.1 System Tools
+
+#### initialize_project
+
+**Purpose**: Initialize project environment with AST indexing, tech stack detection, and project rules generation. **Must call before any other MPM operation.**
+
+**Triggers**: `mpm init`, `mpm 初始化`
 
 **Parameters**:
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `scope` | Directory scope | Entire project |
-| `level` | `structure`(dirs) / `symbols`(symbols) | `symbols` |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `project_root` | string | No* | Absolute path to project root. Auto-detected if empty. |
+| `force_full_index` | boolean | No | Force full indexing (disable bootstrap strategy). Default: `false` |
 
-**Output Example**:
+*If empty, attempts auto-detection via `.mpm-data/project_config.json` anchor.
+
+**Outputs**:
+- Success message with project path
+- AST indexing status (background, mode=auto/full)
+- Path to generated `_MPM_PROJECT_RULES.md`
+
+**Gotchas**:
+- Manual `project_root` must use absolute paths
+- Creates `.mpm-data/project_config.json` as project anchor
+- Generates `_MPM_PROJECT_RULES.md` for LLM reference
+- Refuses to guess root if multiple anchors found in workspace
+
+---
+
+#### index_status
+
+**Purpose**: Query background AST indexing task status started by `initialize_project`.
+
+**Triggers**: `mpm index status`, `mpm 索引状态`
+
+**Parameters**:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `project_root` | string | No | Project root path. Uses session project if empty. |
+
+**Outputs**:
+- `status`: running/success/failed
+- `mode`: auto/full
+- `started_at` / `finished_at` timestamps
+- `total_files` / `elapsed_ms`
+- `heartbeat`: progress indicator (processed/total)
+- `db_file_sizes`: symbols.db and WAL file sizes
+
+**Gotchas**:
+- Status file: `.mpm-data/index_status.json`
+- Heartbeat file: `.mpm-data/heartbeat`
+- Useful for large repositories to monitor indexing progress
+
+---
+
+### 2.2 Perception Tools
+
+#### project_map
+
+**Purpose**: Project navigation map. Use when lost or unsure which file to modify. Provides structured overview with complexity heat map.
+
+**Triggers**: `mpm map`, `mpm structure`, `mpm 地图`, `mpm 结构`
+
+**Parameters**:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `scope` | string | No | Directory/file scope (empty = entire project) |
+| `level` | string | No | Level: "structure"(dirs)/"symbols"(functions+classes). Default: "symbols" |
+| `core_paths` | string | No | JSON array of core paths to highlight |
+
+**Outputs**:
+- **Project Stats**: File count, symbol count
+- **Complexity Heat Map**: High-complexity symbols marked with 🔴
+- **Directory Structure** (structure level): File counts per directory
+- **Symbol Structure** (symbols level): Functions/classes per file with line ranges
+
+**Example**:
 ```
 📊 Project Stats: 156 files, 892 symbols
 
@@ -88,31 +184,41 @@ MPM uses a Rust AST engine to parse code, maintaining three core fields:
       └── func LoadConfig (L20-40) 🟢
 ```
 
+**Gotchas**:
+- Large outputs (>2000 chars) saved to `.mpm-data/project_map_*.md`
+- Use "structure" level for quick directory overview
+- Use "symbols" level for detailed code navigation
+- Complexity analysis based on DICE algorithm
+
 ---
 
-#### code_search - Symbol Lookup
+#### code_search
 
-**Triggers**: `mpm search`, `mpm locate`
+**Purpose**: AST-based symbol lookup. **Use when you know the name (function/class) but not the file location.** More precise than grep.
 
-**Purpose**: Precisely locate function/class definitions, no string guessing.
+**Triggers**: `mpm search`, `mpm locate`, `mpm 定位`, `mpm 符号`, `mpm find`
 
 **Parameters**:
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `query` | Search keyword | Required |
-| `scope` | Directory scope | Entire project |
-| `search_type` | `any`/`function`/`class` | `any` |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `query` | string | Yes | Symbol name (NOT natural language) |
+| `scope` | string | No | Directory scope (e.g., "internal/core") |
+| `search_type` | string | No | Filter: "any"/"function"/"class". Default: "any" |
 
-**5-Layer Fallback Search**:
-```
-1. Exact match
-2. Prefix/suffix match
-3. Substring match
-4. Levenshtein distance
-5. Stem match
-```
+**Outputs**:
+- **Best Match**: Exact symbol with:
+  - `node_type`: function/class/method/struct
+  - `name`: Symbol name
+  - `file_path`: File location
+  - `line_start` / `line_end`: Line range
+  - `canonical_id`: Unique identifier (e.g., `func:core/auth.go::Login`)
+  - `signature`: Function signature
+  - `calls`: Functions this symbol calls (top 5)
+  - `related_nodes`: Callers (top 5)
+- **Other Candidates**: List of similar matches with scores
+- **Text Search (Ripgrep)**: Fallback if no AST match found
 
-**Output Example**:
+**Example**:
 ```
 ### About Login
 
@@ -124,27 +230,51 @@ Other candidates:
   [func] LoginUser @ src/api/user.go (score: 0.85)
 ```
 
+**5-Layer Fallback Search**:
+```
+1. Exact match
+2. Prefix/suffix match
+3. Substring match
+4. Levenshtein distance
+5. Stem match
+```
+
+**Gotchas**:
+- Query should be exact symbol name, NOT natural language description
+- If no exact match, falls back to ripgrep text search with deep context
+- Scope filtering is client-side enforced
+- Type filtering supports function/method and class/struct/interface
+
 ---
 
-#### code_impact - Impact Analysis
+#### code_impact
 
-**Triggers**: `mpm impact`, `mpm dependency`
+**Purpose**: Analyze impact scope when modifying a function or class. **MUST call before modifying functions.** Shows complete call chain.
 
-**Purpose**: **Must do before modifications**, assess impact scope.
+**Triggers**: `mpm impact`, `mpm dependency`, `mpm 影响`, `mpm 依赖`
 
 **Parameters**:
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `symbol_name` | Symbol name | Required |
-| `direction` | `backward`(who calls me)/`forward`(I call whom)/`both` | `backward` |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `symbol_name` | string | Yes | Exact symbol name (function/class) |
+| `direction` | string | No | Direction: "backward"(callers)/"forward"(callees)/"both". Default: "backward" |
 
-**Output Example**:
+**Outputs**:
+- **Risk Level**: low/medium/high
+- **Complexity Score**: Numeric complexity
+- **Affected Nodes**: Total count
+- **Direct Callers**: Top 10 with file:line locations
+- **Indirect Callers**: Count and top 20 names
+- **Modification Checklist**: Target and verification points
+- JSON summary for programmatic use
+
+**Example**:
 ```
 CODE_IMPACT_REPORT: GetSession
 RISK_LEVEL: high
 AFFECTED_NODES: 15
 
-#### POLLUTION_PROPAGATION_GRAPH
+POLLUTION_PROPAGATION_GRAPH
 LAYER_1_DIRECT (4):
   - [api/handler.go:45-80] SYMBOL: HandleRequest
   - [service/auth.go:100-130] SYMBOL: Authenticate
@@ -153,82 +283,98 @@ LAYER_2_INDIRECT (11):
   - [main.go:50-100] SYMBOL: main
   ... and 9 more
 
-#### ACTION_REQUIRED_CHECKLIST
+ACTION_REQUIRED_CHECKLIST
 - [ ] MODIFY_TARGET: [core/session.go:45-80]
 - [ ] VERIFY_CALLER: [api/handler.go:45-80]
 - [ ] VERIFY_CALLER: [service/auth.go:100-130]
 ```
 
+**Gotchas**:
+- Symbol name must be EXACT code symbol, not string search
+- Uses AST analysis, not text matching
+- Returns error if symbol is not a function/class definition
+- Use `code_search` first if unsure about exact name
+
 ---
 
-#### flow_trace - Business Flow Trace
+#### flow_trace
 
-**Triggers**: `mpm flow`
+**Purpose**: Business flow trace for understanding main logic chains. Outputs "entry-upstream-downstream" flow summary. More readable than `code_impact`.
 
-**Purpose**: Read the main business chain as "entry-upstream-downstream". Compared to `code_impact`, this focuses on flow comprehension.
+**Triggers**: `mpm flow`, `mpm 流程`
 
 **Parameters**:
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `symbol_name` / `file_path` | One of the two (symbol wins if both provided) | - |
-| `scope` | Scope filter (recommended for large repositories) | empty |
-| `direction` | `backward` / `forward` / `both` | `both` |
-| `mode` | `brief` / `standard` / `deep` (progressive disclosure) | `brief` |
-| `max_nodes` | Output node budget | `40` |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `symbol_name` | string | No* | Entry symbol (function/class). Takes priority if both provided. |
+| `file_path` | string | No* | Target file path. Alternative to symbol_name. |
+| `scope` | string | No | Scope filter (recommended for large projects) |
+| `direction` | string | No | Direction: "backward"/"forward"/"both". Default: "both" |
+| `mode` | string | No | Output level: "brief"/"standard"/"deep". Default: "brief" |
+| `max_nodes` | integer | No | Output node budget. Default: 40 |
 
-**Output Focus**:
-- Entry point and location
-- Upstream/downstream key nodes
-- Critical paths Top 3
-- Stage summary / side-effects (standard/deep)
-- Budget truncation hints
+*Either `symbol_name` or `file_path` required.
+
+**Outputs**:
+- **Entry Point**: Symbol name, type, location, score
+- **Upstream/Downstream**: Key nodes with impact counts
+- **Critical Paths**: Top 3 important paths
+- **Stage Summary**: Init/validate/execute/query/persist stages
+- **Side Effects**: filesystem/database/network/process/state
+- **Recommendations**: Next steps
+
+**Gotchas**:
+- File mode: analyzes multiple entry candidates, shows top-scored ones
+- Use "brief" for quick overview, "standard"/"deep" for more detail
+- Scope strongly recommended for large repositories
+- Output truncated at `max_nodes` with summary of omitted nodes
 
 ---
 
-### 2.2 Task Management (3 tools)
+### 2.3 Scheduling Tools
 
-#### task_chain - Protocol State Machine
+#### task_chain
 
-**Triggers**: `mpm chain`, `mpm taskchain`
+**Purpose**: Protocol state machine for multi-step task management. Supports gates, loops, conditional branching, and cross-session persistence.
 
-**Purpose**: Designed for large projects and long-running tasks. Uses predefined "protocols" to drive multi-phase workflows with built-in Gate checkpoints, Loop sub-tasks, and cross-session persistence.
+**Triggers**: `mpm chain`, `mpm taskchain`, `mpm 任务链`, `mpm 续传`
 
-**Core Concepts**:
-1. **Protocol**: A predefined task template (e.g., `develop`, `debug`).
-2. **Phase**: Different lifecycle stages of a task, categorized as `execute`, `gate`, or `loop`.
-3. **Gate**: A mandatory self-review checkpoint controlled by `result=pass|fail`.
+**Parameters**:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `mode` | string | Yes | Operation mode (see below) |
+| `task_id` | string | Mode-dependent | Task identifier |
+| `description` | string | init mode | Task description |
+| `protocol` | string | init mode | Protocol name: "linear"/"develop"/"debug"/"refactor". Default: "linear" |
+| `phase_id` | string | Multiple modes | Phase identifier |
+| `result` | string | complete gate | Gate result: "pass"/"fail" |
+| `summary` | string | complete modes | Phase/subtask summary |
+| `sub_id` | string | complete_sub | Subtask ID |
+| `sub_tasks` | array | spawn mode | List of subtasks |
+| `phases` | array | init mode | Custom phase definitions |
 
-**Operation Modes**:
+**Modes**:
+| Mode | Description |
+|------|-------------|
+| `init` | Initialize task chain with protocol |
+| `start` | Begin a phase |
+| `complete` | Complete a phase (gate types need result) |
+| `spawn` | Generate subtasks in loop phase |
+| `complete_sub` | Complete a subtask |
+| `status` | View task progress (auto-loads from DB) |
+| `resume` | Resume/restore task |
+| `finish` | Permanently close task chain |
+| `protocol` | List available protocols |
 
-| Mode | Required Parameters | Description |
-|------|--------------------|-------------|
-| `init` | `task_id`, `protocol` | Initialize the task chain. Default `protocol=linear` |
-| `start` | `task_id`, `phase_id` | Start a specific phase |
-| `complete` | `task_id`, `phase_id`, `summary` | Complete a phase. `gate` types require `result=pass\|fail` |
-| `spawn` | `task_id`, `phase_id`, `sub_tasks` | Dispatch sub-tasks in a `loop` phase |
-| `complete_sub` | `task_id`, `phase_id`, `sub_id`, `summary` | Complete a single sub-task |
-| `status` | `task_id` | View current progress wall (auto-identifies protocol) |
-| `resume` | `task_id` | Restore task across sessions (loads automatically from DB) |
-| `protocol` | - | List all available protocols and their phase definitions |
-| `finish` | `task_id` | Permanently close the task chain |
-
-**Built-in Protocol Flow Table**:
-
-| Protocol | Flow (Phases) | Use Case |
-|----------|---------------|----------|
-| `linear` | main (execute) | Highly deterministic, single-step tasks |
+**Built-in Protocols**:
+| Protocol | Phases | Use Case |
+|----------|--------|----------|
+| `linear` | main (execute) | Single-step deterministic tasks |
 | `develop` | analyze → plan_gate → implement(loop) → verify_gate → finalize | Cross-module development |
 | `debug` | reproduce → locate → fix(loop) → verify_gate → finalize | Bug investigation |
 | `refactor` | baseline → analyze → refactor(loop) → verify_gate → finalize | Large-scale refactoring |
 
-**Self-Review & Escalation**:
-
-Built-in Re-init interception prevents the LLM from spinning in circles on the same TaskID:
-- **1st time**: Re-init allowed (resets progress).
-- **2nd time**: Hard block, requiring the LLM to explain the deviation and request human intervention.
-
-**Typical Usage**:
-
+**Example**:
 ```javascript
 // 1. Initialize a refactoring task
 task_chain(mode="init", task_id="AUTH_REFACTOR", protocol="refactor", description="Refactor auth module")
@@ -246,39 +392,77 @@ task_chain(mode="spawn", task_id="AUTH_REFACTOR", phase_id="refactor", sub_tasks
 task_chain(mode="complete_sub", task_id="AUTH_REFACTOR", phase_id="refactor", sub_id="sub_001", summary="Store extracted to interface")
 ```
 
-**Why was Linear Step Mode deprecated in V3?**
-The V3 `linear` protocol, combined with `loop` phases, perfectly replaces the dynamic step capabilities of the old mode while providing robust DB persistence and multi-level self-review, no longer relying on volatile memory state.
+**Gotchas**:
+- Default protocol is `linear`
+- Use `develop` protocol for large projects with loop phases
+- Gate phases require `result="pass"` or `result="fail"`
+- Re-init protection: 2nd re-init on same task_id is blocked
+- V3 `linear` protocol with `loop` phases replaces old Linear Step Mode
 
 ---
 
-#### Hook Series (3 tools)
+#### system_hook
 
-| Tool | Trigger | Purpose |
-|------|---------|---------|
-| `manager_create_hook` | `mpm suspend` | Create todo/checkpoint |
-| `manager_list_hooks` | `mpm todolist` | View todos |
-| `manager_release_hook` | `mpm release` | Complete todo |
+**Purpose**: Unified tool for managing todo hooks (create/list/release). Create and suspend a "hook" when a task cannot proceed due to missing information, user confirmation, or blocking issues.
 
-**Hook Feature**: Supports `expires_in_hours` expiration time.
-
----
-
-### 2.3 Memory System (3 tools)
-
-#### memo - Change Documentation
-
-**Triggers**: `mpm memo`, `mpm record`
-
-**Purpose**: **Must call after any code change**, record "why changed".
+**Triggers**: `mpm suspend`, `mpm hook`, `mpm todolist`, `mpm release`, `mpm 挂起`, `mpm 待办`, `mpm 待办列表`, `mpm 释放`, `mpm 完成`
 
 **Parameters**:
-| Field | Description | Example |
-|-------|-------------|---------|
-| `category` | Category | `fix`/`develop`/`decision`/`pitfall` |
-| `entity` | Changed entity | `session.go` |
-| `act` | Action | `fix idempotency issue` |
-| `path` | File path | `core/session.go` |
-| `content` | Detailed explanation | Why this change |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `mode` | string | Yes | Operation mode: "create"/"list"/"release" |
+| `description` | string | create mode | Todo/blocker description |
+| `priority` | string | No | Priority: "high"/"medium"/"low". Default: "medium" |
+| `task_id` | string | No | Associated task ID |
+| `tag` | string | No | Category tag |
+| `expires_in_hours` | integer | No | Expiration time in hours. 0 = never expires. Default: 0 |
+| `status` | string | list mode | Filter: "open"/"closed". Default: "open" |
+| `hook_id` | string | release mode | Hook identifier (e.g., "#001" or UUID) |
+| `result_summary` | string | No | Completion summary (release mode) |
+
+**Modes**:
+| Mode | Description |
+|------|-------------|
+| `create` | Create and suspend a todo/checkpoint |
+| `list` | List all hooks filtered by status |
+| `release` | Complete and close a hook |
+
+**Outputs**:
+- **create**: Hook ID and confirmation details
+- **list**: List of hooks with ID, priority, description, expiration status
+- **release**: Confirmation with hook ID and result summary
+
+**Gotchas**:
+- Default list mode shows only "open" hooks
+- Expired hooks are marked as "EXPIRED" in listings
+- Use for cross-session task continuity
+- Closed hooks no longer appear in default (open) listings
+- Use meaningful result summaries for audit trails
+
+---
+
+### 2.4 Memory Tools
+
+#### memo
+
+**Purpose**: Record change documentation. **MUST call after any code modification.** This is the project's Single Source of Truth (SSOT) for evolution history.
+
+**Triggers**: `mpm memo`, `mpm record`, `mpm 存档`
+
+**Parameters**:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `items` | array | Yes | Array of memo items (see below) |
+| `lang` | string | No | Language: "zh"/"en". Default: "zh" |
+
+**MemoItem fields**:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `category` | string | Yes | Category: "修改"/"开发"/"决策"/"重构"/"避坑" |
+| `entity` | string | Yes | Changed entity (filename, function name, module) |
+| `act` | string | Yes | Action: "修复Bug"/"新增功能"/"技术选型" |
+| `path` | string | Yes | File path |
+| `content` | string | Yes | Detailed explanation (WHY, not just WHAT) |
 
 **Example**:
 ```javascript
@@ -291,27 +475,37 @@ memo(items=[{
 }])
 ```
 
+**Gotchas**:
+- `items` must be an array, even for single item: `[{...}]`
+- Record the "why" not just the "what"
+- Use user's conversation language for content
+- Retrievable via `system_recall`
+
 ---
 
-#### system_recall - Memory Retrieval
+#### system_recall
 
-**Triggers**: `mpm recall`, `mpm history`
+**Purpose**: Retrieve past decisions, changes, and verified facts from memory. Use **before modifying code** to avoid repeating mistakes or reinventing solutions.
 
-**Purpose**: Retrieve past decisions and changes, **"Wide-In Strict-Out"** strategy.
+**Triggers**: `mpm recall`, `mpm 历史`, `mpm 召回`
 
 **Parameters**:
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `keywords` | Keywords (multi-field fuzzy match) | Required |
-| `category` | Type filter | All |
-| `limit` | Return count | 20 |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `keywords` | string | Yes | Search keywords (space-separated, fuzzy match) |
+| `category` | string | No | Filter by type: "开发"/"重构"/"避坑"/etc. |
+| `limit` | integer | No | Max results. Default: 20 |
+
+**Outputs**:
+- **Known Facts**: Verified rules/pitfalls with ID and date
+- **Memos**: Historical change records with timestamp, category, act, content
 
 **Wide-In Strict-Out Strategy**:
 - **Wide-In**: OR match across `Entity` / `Act` / `Content` fields
 - **Strict-Out**: Filter by `category` + limit by `limit`
 - **Refined Output**: Categorized display (Known Facts first) + timestamp (recent→old)
 
-**Output Example**:
+**Example**:
 ```
 ## 📌 Known Facts (2)
 
@@ -323,34 +517,78 @@ memo(items=[{
 - **[41] 2026-02-14 10:00** (develop) add timeout parameter: adapt to Alibaba Cloud...
 ```
 
+**Gotchas**:
+- Uses "wide-in, strict-out" strategy: OR match across multiple fields, then filter
+- Known Facts displayed first (higher priority)
+- Returns "未找到相关记录" if no matches
+
 ---
 
-#### known_facts - Rules Archive
+#### known_facts
 
-**Triggers**: `mpm rule`, `mpm pitfall`
+**Purpose**: Archive verified code rules, iron laws, or important pitfall experiences for later retrieval via `system_recall`.
 
-**Purpose**: Archive verified rules for later retrieval via `system_recall`.
+**Triggers**: `mpm fact`, `mpm 铁律`, `mpm 避坑`
+
+**Parameters**:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | string | Yes | Fact type: "铁律"/"避坑"/"规范"/"逻辑"/etc. |
+| `summarize` | string | Yes | Concise description of the fact |
 
 **Example**:
 ```javascript
 known_facts(type="pitfall", summarize="Must check dependencies before modifying session logic")
 ```
 
+**Gotchas**:
+- Facts are retrievable via `system_recall`
+- Keep summaries concise and actionable
+- Use consistent type naming for better filtering
+
 ---
 
-### 2.4 Enhancement Tools (3 tools)
+### 2.5 Enhancement Tools
 
-#### persona - Personality Management
+#### persona
 
-**Triggers**: `mpm persona`
+**Purpose**: Switch or manage AI personalities (roles). Changes tone, response style, and thinking protocols for specific scenarios.
 
-**Design Philosophy**: Personality is a **Buff mechanism**, not persistent config.
+**Triggers**: `mpm persona`, `mpm 人格`, `激活人格`, `切换人格`, `列出人格`, `创建人格`, `删除人格`
 
-| Feature | Description |
-|---------|-------------|
-| **Temporary** | Switch personality = temporary buff, done when finished |
-| **No Persistence** | Not stored in DB, not cross-session |
-| **Health Indicator** | Blurred personality = context diluted, needs attention |
+**Parameters**:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `mode` | string | No | Mode: "list"/"activate"/"create"/"update"/"delete". Default: "list" |
+| `name` | string | Mode-dependent | Persona name or alias |
+| `new_name` | string | update mode | New name |
+| `display_name` | string | create/update | Display name |
+| `hard_directive` | string | create/update | Core directive |
+| `aliases` | array | create/update | Alias list |
+| `style_must` | array | create/update | Required style elements |
+| `style_signature` | array | create/update | Signature expressions |
+| `style_taboo` | array | create/update | Forbidden expressions |
+| `triggers` | array | create/update | Trigger phrases |
+
+**Modes**:
+| Mode | Description |
+|------|-------------|
+| `list` | List all available personas |
+| `activate` | Activate a persona by name or alias |
+| `create` | Create new persona (saved to `.mcp-config/personas.json`) |
+| `update` | Update existing persona |
+| `delete` | Delete a persona |
+
+**Built-in Personas**:
+| Name | Display | Style | Use Case |
+|------|---------|-------|----------|
+| `zhuge` | 孔明 | Classical Chinese | Architecture, code review |
+| `trump` | 特朗普 | Confident, superlatives | Brainstorming, breaking deadlock |
+| `doraemon` | 哆啦A梦 | Friendly, enthusiastic | Beginner guidance |
+| `detective_conan` | 柯南 | Logical deduction | Bug investigation |
+| `tangseng` | 唐僧 | Street leader style | Team coordination |
+| `tsundere_taiwan_girl` | 小智 | Tsundere, Taiwan accent | Code review |
+| `lich_king_arthas` | 阿尔萨斯 | Cold, majestic | Serious debugging |
 
 **Context Dilution Detection**:
 
@@ -361,31 +599,30 @@ Personality expression strength serves as a **signal** for context health:
 | Distinct style | Context healthy | Continue current session |
 | Blurred expression | Context diluted | New session / compact / input prompt to converge attention |
 
-**Operation Modes**:
-
-| Mode | Description | Example |
-|------|-------------|---------|
-| `list` | List all personalities | `persona(mode="list")` |
-| `activate` | Activate personality | `persona(mode="activate", name="zhuge")` |
-| `create` | Create personality | `persona(mode="create", name="my_expert", ...)` |
-| `update` | Update personality | `persona(mode="update", name="my_expert", ...)` |
-| `delete` | Delete personality | `persona(mode="delete", name="my_expert")` |
-
-**Built-in Personalities**:
-| Personality | Code | Style Strength | Use Case |
-|-------------|------|----------------|----------|
-| Zhuge Liang | `zhuge` | Medium | Architecture design, code review |
-| Trump | `trump` | Strong | Brainstorming, break deadlock |
-| Doraemon | `doraemon` | Medium | Beginner guidance, tutorial writing |
-| Detective Conan | `detective_conan` | Medium | Bug investigation, log analysis |
+**Gotchas**:
+- Persona is a BUFF mechanism, not persistent config
+- Blurred personality expression indicates context dilution
+- Custom personas saved to `.mcp-config/personas.json`
+- Activation includes hidden system directive for LLM
 
 ---
 
-#### open_timeline - Project Evolution
+#### open_timeline
 
-**Triggers**: `mpm timeline`
+**Purpose**: Generate and open an interactive HTML visualization of project evolution history based on `memo` records.
 
-**Purpose**: Generate HTML visualization of project evolution history.
+**Triggers**: `mpm timeline`, `mpm 时间线`
+
+**Parameters**: None
+
+**Outputs**:
+- Path to generated `project_timeline.html`
+- Attempts to open in default browser
+
+**Gotchas**:
+- Requires `visualize_history.py` script in project root or `scripts/` directory
+- Requires Python installed
+- Opens in Microsoft Edge by default on Windows (falls back to default browser)
 
 ---
 
@@ -467,7 +704,7 @@ run `project_map` first, then use `flow_trace` to narrow the main chain.
 
 ### 4.1 Case 1: Symbol Location
 
-**Task**: Analyze `memo` tool implementation logic
+**Task**: Analyze `<symbol>` tool implementation logic
 
 | Metric | Without MPM | With MPM | Improvement |
 |--------|-------------|----------|-------------|
@@ -604,11 +841,11 @@ complexity_score =
 | Map | `mpm map` `mpm structure` | `project_map` |
 | Flow | `mpm flow` | `flow_trace` |
 | Chain | `mpm chain` `mpm taskchain` | `task_chain` |
-| Todo | `mpm suspend` `mpm todolist` `mpm release` | Hook Series |
+| Todo | `mpm suspend` `mpm todolist` `mpm release` | `system_hook` |
 | Memory | `mpm memo` `mpm recall` `mpm rule` | Memory Series |
 | Persona | `mpm persona` | `persona` |
 | Visual | `mpm timeline` | `open_timeline` |
 
 ---
 
-*MPM Manual v2.1 - 2026-02*
+*MPM Manual v2.2 - 2026-03*

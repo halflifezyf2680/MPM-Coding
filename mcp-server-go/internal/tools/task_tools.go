@@ -10,24 +10,24 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// HookCreateArgs 创建 Hook 参数
-type HookCreateArgs struct {
-	Description    string `json:"description" jsonschema:"required,description=待办事项描述"`
-	Priority       string `json:"priority" jsonschema:"default=medium,enum=high,enum=medium,enum=low,description=优先级"`
-	TaskID         string `json:"task_id" jsonschema:"description=关联的任务 ID"`
-	Tag            string `json:"tag" jsonschema:"description=可选标签"`
-	ExpiresInHours int    `json:"expires_in_hours" jsonschema:"default=0,description=过期时间(小时), 0表示不过期"`
-}
+// SystemHookArgs 统一 Hook 工具参数
+// 说明：条件必填（取决于 mode）无法在 jsonschema 中表达，需在 handler 中校验。
+type SystemHookArgs struct {
+	Mode string `json:"mode" jsonschema:"required,enum=create,enum=list,enum=release,description=操作模式"`
 
-// HookListArgs 列出 Hook 参数
-type HookListArgs struct {
-	Status string `json:"status" jsonschema:"default=open,enum=open,enum=closed,description=状态筛选"`
-}
+	// create
+	Description    string `json:"description" jsonschema:"description=待办事项描述 (create)"`
+	Priority       string `json:"priority" jsonschema:"default=medium,enum=high,enum=medium,enum=low,description=优先级 (create)"`
+	TaskID         string `json:"task_id" jsonschema:"description=关联的任务 ID (create)"`
+	Tag            string `json:"tag" jsonschema:"description=可选标签 (create)"`
+	ExpiresInHours int    `json:"expires_in_hours" jsonschema:"default=0,description=过期时间(小时), 0表示不过期 (create)"`
 
-// HookReleaseArgs 释放 Hook 参数
-type HookReleaseArgs struct {
-	HookID        string `json:"hook_id" jsonschema:"required,description=Hook 编号 (如 #001)"`
-	ResultSummary string `json:"result_summary" jsonschema:"description=完成总结"`
+	// list
+	Status string `json:"status" jsonschema:"default=open,enum=open,enum=closed,description=状态筛选 (list)"`
+
+	// release
+	HookID        string `json:"hook_id" jsonschema:"description=Hook 编号 (release), 例如 #001"`
+	ResultSummary string `json:"result_summary" jsonschema:"description=完成总结 (release)"`
 }
 
 // TaskChainArgs 任务链参数
@@ -46,87 +46,42 @@ type TaskChainArgs struct {
 
 // RegisterTaskTools 注册任务管理工具
 func RegisterTaskTools(s *server.MCPServer, sm *SessionManager) {
-	// Hook 系列
-	s.AddTool(mcp.NewTool("manager_create_hook",
-		mcp.WithDescription(`manager_create_hook - 创建并挂起待办事项 (钩子)
+	// Hook (统一工具)
+	s.AddTool(mcp.NewTool("system_hook",
+		mcp.WithDescription(`system_hook - 系统钩子 (挂起/列表/释放)
 
 用途：
-  当任务由于缺少信息、等待用户确认或遇到阻塞无法继续时，创建一个“钩子”挂起当前进度。这确保了任务可以在未来的会话中被恢复。
+  当任务被阻塞（缺信息/待确认/无法继续）时，用 Hook 挂起当前进度；之后可随时列出/释放并记录结果。
 
 参数：
-  description (必填)
-    待办事项或阻塞原因的描述。
-  
-  priority (默认: medium)
-    优先级 (high/medium/low)。
-  
-  task_id (可选)
-    关联的任务 ID。
-  
-  tag (可选)
-    分类标签。
-  
-  expires_in_hours (默认: 0)
-    过期时间（小时），0 表示永不过期。
+  mode (必填):
+    - create: 创建并挂起 Hook
+    - list: 列出 Hook
+    - release: 释放并闭合 Hook
 
-说明：
-  - 挂起的钩子可通过 manager_list_hooks 主动检索。
+  create 模式参数：
+    - description (必填)
+    - priority (默认: medium) high/medium/low
+    - task_id (可选)
+    - tag (可选)
+    - expires_in_hours (默认: 0)
 
-示例：
-  manager_create_hook(description="等待用户提供 API 密钥", priority="high")
-    -> 创建一个高优先级的阻塞项
+  list 模式参数：
+    - status (默认: open) open/closed
 
-触发词：
-  "mpm 挂起", "mpm 待办", "mpm hook"`),
-		mcp.WithInputSchema[HookCreateArgs](),
-	), wrapCreateHook(sm))
-
-	s.AddTool(mcp.NewTool("manager_list_hooks",
-		mcp.WithDescription(`manager_list_hooks - 查看待办钩子列表
-
-用途：
-  列出当前项目中所有处于挂起或已闭合状态的任务钩子。
-
-参数：
-  status (默认: open)
-    筛选钩子状态 (open: 待办 / closed: 已完成)。
-
-说明：
-  - 用于检索因阻塞而暂停的任务进度。
+  release 模式参数：
+    - hook_id (必填) 例如 "#001"
+    - result_summary (可选)
 
 示例：
-  manager_list_hooks(status="open")
-    -> 列出所有打开的待办项
+  system_hook(mode="create", description="等待用户提供 API 密钥", priority="high")
+  system_hook(mode="list", status="open")
+  system_hook(mode="release", hook_id="#001", result_summary="API 密钥已配置并测试通过")
 
 触发词：
-  "mpm 待办列表", "mpm listhooks"`),
-		mcp.WithInputSchema[HookListArgs](),
-	), wrapListHooks(sm))
-
-	s.AddTool(mcp.NewTool("manager_release_hook",
-		mcp.WithDescription(`manager_release_hook - 释放并闭合待办钩子
-
-用途：
-  当挂起的待办事项已完成或阻塞点已消除时，闭合对应的钩子，并记录执行结果。
-
-参数：
-  hook_id (必填)
-    钩子的唯一标识符（如 "#001" 或 UUID）。
-  
-  result_summary (可选)
-    该项任务完成后的总结信息。
-
-说明：
-  - 闭合后的钩子将不再出现在默认的待办列表中。
-
-示例：
-  manager_release_hook(hook_id="#001", result_summary="API 密钥已配置并测试通过")
-    -> 释放指定的待办项
-
-触发词：
-  "mpm 释放", "mpm 完成"`),
-		mcp.WithInputSchema[HookReleaseArgs](),
-	), wrapReleaseHook(sm))
+  "mpm hook", "mpm hooks", "mpm 挂起", "mpm 待办", "mpm 待办列表", "mpm 释放", "mpm 完成"`),
+		mcp.WithInputSchema[SystemHookArgs](),
+	), wrapSystemHook(sm))
 
 	// Task Chain - 状态机任务链
 	s.AddTool(mcp.NewTool("task_chain",
@@ -157,9 +112,9 @@ func RegisterTaskTools(s *server.MCPServer, sm *SessionManager) {
 	), wrapTaskChain(sm))
 }
 
-func wrapCreateHook(sm *SessionManager) server.ToolHandlerFunc {
+func wrapSystemHook(sm *SessionManager) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var args HookCreateArgs
+		var args SystemHookArgs
 		if err := request.BindArguments(&args); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("参数错误: %v", err)), nil
 		}
@@ -168,83 +123,73 @@ func wrapCreateHook(sm *SessionManager) server.ToolHandlerFunc {
 			return mcp.NewToolResultError("记忆层尚未初始化"), nil
 		}
 
-		id, err := sm.Memory.CreateHook(ctx, args.Description, args.Priority, args.Tag, args.TaskID, args.ExpiresInHours)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("创建 Hook 失败: %v", err)), nil
-		}
+		switch strings.ToLower(strings.TrimSpace(args.Mode)) {
+		case "create":
+			if strings.TrimSpace(args.Description) == "" {
+				return mcp.NewToolResultError("参数错误: mode=create 时 description 为必填"), nil
+			}
+			if strings.TrimSpace(args.Priority) == "" {
+				args.Priority = "medium"
+			}
 
-		return mcp.NewToolResultText(fmt.Sprintf("📌 Hook 已创建 (ID: %s)\n\n**描述**: %s\n**优先级**: %s\n\n> 使用 `manager_release_hook(hook_id=\"%s\")` 释放此 Hook。", id, args.Description, args.Priority, id)), nil
-	}
-}
+			id, err := sm.Memory.CreateHook(ctx, args.Description, args.Priority, args.Tag, args.TaskID, args.ExpiresInHours)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("创建 Hook 失败: %v", err)), nil
+			}
 
-func wrapListHooks(sm *SessionManager) server.ToolHandlerFunc {
-	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var args HookListArgs
-		request.BindArguments(&args)
+			return mcp.NewToolResultText(fmt.Sprintf(
+				"📌 Hook 已创建 (ID: %s)\n\n**描述**: %s\n**优先级**: %s\n\n> 使用 `system_hook(mode=\"release\", hook_id=\"%s\")` 释放此 Hook。",
+				id, args.Description, args.Priority, id,
+			)), nil
 
-		if args.Status == "" {
-			args.Status = "open"
-		}
+		case "list":
+			if strings.TrimSpace(args.Status) == "" {
+				args.Status = "open"
+			}
 
-		if sm.Memory == nil {
-			return mcp.NewToolResultError("记忆层尚未初始化"), nil
-		}
+			hooks, err := sm.Memory.ListHooks(ctx, args.Status)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("查询 Hook 失败: %v", err)), nil
+			}
+			if len(hooks) == 0 {
+				return mcp.NewToolResultText(fmt.Sprintf("暂无 %s 状态的 Hook。", args.Status)), nil
+			}
 
-		hooks, err := sm.Memory.ListHooks(ctx, args.Status)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("查询 Hook 失败: %v", err)), nil
-		}
-
-		if len(hooks) == 0 {
-			return mcp.NewToolResultText(fmt.Sprintf("暂无 %s 状态的 Hook。", args.Status)), nil
-		}
-
-		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("### 📋 Hook 列表 (%s)\n\n", args.Status))
-		for _, h := range hooks {
-			expiration := ""
-			if h.ExpiresAt.Valid {
-				if time.Now().After(h.ExpiresAt.Time) {
-					expiration = " (EXPIRED)"
-				} else {
-					expiration = fmt.Sprintf(" (Exp: %s)", h.ExpiresAt.Time.Format("01-02 15:04"))
+			var sb strings.Builder
+			sb.WriteString(fmt.Sprintf("### 📋 Hook 列表 (%s)\n\n", args.Status))
+			for _, h := range hooks {
+				expiration := ""
+				if h.ExpiresAt.Valid {
+					if time.Now().After(h.ExpiresAt.Time) {
+						expiration = " (EXPIRED)"
+					} else {
+						expiration = fmt.Sprintf(" (Exp: %s)", h.ExpiresAt.Time.Format("01-02 15:04"))
+					}
 				}
+				taskDraft := ""
+				if h.RelatedTaskID != "" {
+					taskDraft = fmt.Sprintf(" [Task: %s]", h.RelatedTaskID)
+				}
+				displayID := h.Summary
+				if displayID == "" {
+					displayID = h.HookID
+				}
+				sb.WriteString(fmt.Sprintf("- **%s** (ID: %s) [%s]%s %s%s\n", displayID, h.HookID, h.Priority, taskDraft, h.Description, expiration))
 			}
-			taskDraft := ""
-			if h.RelatedTaskID != "" {
-				taskDraft = fmt.Sprintf(" [Task: %s]", h.RelatedTaskID)
+
+			return mcp.NewToolResultText(sb.String()), nil
+
+		case "release":
+			if strings.TrimSpace(args.HookID) == "" {
+				return mcp.NewToolResultError("参数错误: mode=release 时 hook_id 为必填"), nil
 			}
-
-			// Display logic: Use Summary if available (e.g. #001), otherwise fallback to HookID
-			displayID := h.Summary
-			if displayID == "" {
-				displayID = h.HookID
+			if err := sm.Memory.ReleaseHook(ctx, args.HookID, args.ResultSummary); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("释放 Hook 失败: %v", err)), nil
 			}
-
-			sb.WriteString(fmt.Sprintf("- **%s** (ID: %s) [%s]%s %s%s\n", displayID, h.HookID, h.Priority, taskDraft, h.Description, expiration))
+			return mcp.NewToolResultText(fmt.Sprintf("✅ Hook %s 已释放。\n\n**结果摘要**: %s", args.HookID, args.ResultSummary)), nil
+		default:
+			return mcp.NewToolResultError("参数错误: mode 仅支持 create/list/release"), nil
 		}
-
-		return mcp.NewToolResultText(sb.String()), nil
-	}
-}
-
-func wrapReleaseHook(sm *SessionManager) server.ToolHandlerFunc {
-	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var args HookReleaseArgs
-		if err := request.BindArguments(&args); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("参数错误: %v", err)), nil
-		}
-
-		if sm.Memory == nil {
-			return mcp.NewToolResultError("记忆层尚未初始化"), nil
-		}
-
-		// 直接使用传入的 String ID
-		if err := sm.Memory.ReleaseHook(ctx, args.HookID, args.ResultSummary); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("释放 Hook 失败: %v", err)), nil
-		}
-
-		return mcp.NewToolResultText(fmt.Sprintf("✅ Hook %s 已释放。\n\n**结果摘要**: %s", args.HookID, args.ResultSummary)), nil
 	}
 }
 
@@ -294,8 +239,8 @@ func continueExecution() (*mcp.CallToolResult, error) {
    → 调用 memo 工具记录最终结果
    → 向用户汇报任务完成
 
-3️⃣ 如果遇到问题无法继续：
-   → 调用 manager_create_hook 挂起任务
+	3️⃣ 如果遇到问题无法继续：
+	   → 调用 system_hook(mode="create") 挂起任务
 
 ══════════════════════════════════════════════════════════════
 `
