@@ -49,9 +49,9 @@ permission:
 
 **本地梳理（你自己做）**：
 ```
-MPM-coding__project_map    // 宏观结构
-MPM-coding__code_search    // 定位具体符号
-MPM-coding__flow_trace     // 理解业务链路
+MPM-Coding__project_map    // 宏观结构
+MPM-Coding__code_search    // 定位具体符号
+MPM-Coding__flow_trace     // 理解业务链路
 ```
 结果直接写进派发 prompt，不需要落盘。
 

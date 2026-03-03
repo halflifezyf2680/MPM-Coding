@@ -1,6 +1,6 @@
 # MPM Quickstart
 
-> Installation and client setup only. For product overview and tool details, see `README_EN.md` and `docs/MANUAL_EN.md`.
+> Installation and client setup only. For product overview and tool details, see `README.md` and `docs/MANUAL.md`.
 
 ## 1. Extract Package
 
@@ -15,7 +15,7 @@ mpm-windows-amd64/
 ├── ast_indexer.exe   # AST indexer (called by mpm-go)
 ├── docs/
 ├── README.md
-└── README_EN.md
+└── README_ZH.md
 ```
 
 ## 2. Configure MCP Client

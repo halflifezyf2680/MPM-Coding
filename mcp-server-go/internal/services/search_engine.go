@@ -111,7 +111,7 @@ func (e *RipgrepEngine) Search(ctx context.Context, opts SearchOptions) ([]TextM
 	defaultIgnores := []string{
 		".git", ".svn", ".hg", "node_modules", "dist", "build", "target", "vendor",
 		".idea", ".vscode", "__pycache__", ".venv", "venv",
-		".mcp-data", // 🆕 排除 MPM 缓存目录，避免搜索到临时文件
+		".mpm-data", ".mcp-data", // 🆕 排除 MPM 缓存目录，避免搜索到临时文件
 		"*.lock", "*.log", "*.map", "*.min.js", "*.min.css",
 	}
 	for _, ignore := range defaultIgnores {
@@ -190,7 +190,7 @@ func (e *RipgrepEngine) nativeSearch(ctx context.Context, opts SearchOptions) ([
 		if info.IsDir() {
 			// 简单忽略常见目录
 			name := info.Name()
-			if name == ".git" || name == "node_modules" || name == "vendor" || name == "target" || name == "build" || name == ".mcp-data" {
+			if name == ".git" || name == "node_modules" || name == "vendor" || name == "target" || name == "build" || name == ".mpm-data" || name == ".mcp-data" {
 				return filepath.SkipDir
 			}
 			return nil

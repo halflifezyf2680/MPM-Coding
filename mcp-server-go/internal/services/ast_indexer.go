@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"mcp-server-go/internal/core"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -287,7 +288,8 @@ func getDBPath(projectRoot string) string {
 		// 如果转换失败,使用原路径(但可能有风险)
 		absRoot = projectRoot
 	}
-	return filepath.Join(absRoot, ".mcp-data", "symbols.db")
+	// 使用新的数据目录名
+	return filepath.Join(absRoot, core.DataDirName, "symbols.db")
 }
 
 // getOutputPath 获取临时输出路径
@@ -298,9 +300,10 @@ func getOutputPath(projectRoot string, mode string) string {
 		// 如果转换失败,使用原路径(但可能有风险)
 		absRoot = projectRoot
 	}
-	mcpData := filepath.Join(absRoot, ".mcp-data")
-	_ = os.MkdirAll(mcpData, 0755)
-	return filepath.Join(mcpData, fmt.Sprintf(".ast_result_%s.json", mode))
+	// 使用新的数据目录名
+	mpmData := filepath.Join(absRoot, core.DataDirName)
+	_ = os.MkdirAll(mpmData, 0755)
+	return filepath.Join(mpmData, fmt.Sprintf(".ast_result_%s.json", mode))
 }
 
 // ============================================================================
@@ -438,7 +441,7 @@ func shouldSkipDetectDir(name string, ignoreSet map[string]bool) bool {
 
 	switch name {
 	case ".git", "node_modules", "vendor", "target", "dist", "build", "coverage", ".next", ".nuxt", "out",
-		"__pycache__", ".pytest_cache", ".venv", "venv", "site-packages", ".idea", ".vscode", ".mcp-data",
+		"__pycache__", ".pytest_cache", ".venv", "venv", "site-packages", ".idea", ".vscode", core.DataDirName,
 		"release", "releases", "archive", "backup", "old":
 		return true
 	default:
@@ -725,11 +728,11 @@ func (ai *ASTIndexer) GetSymbolAtLine(projectRoot string, filePath string, line 
 	outputPath := getOutputPath(projectRoot, fmt.Sprintf("line_%d", line))
 
 	// 清理所有旧的 line_*.json 临时文件（避免泄漏）
-	mcpData := filepath.Join(projectRoot, ".mcp-data")
-	if entries, err := os.ReadDir(mcpData); err == nil {
+	mpmData := filepath.Join(projectRoot, core.DataDirName)
+	if entries, err := os.ReadDir(mpmData); err == nil {
 		for _, e := range entries {
 			if !e.IsDir() && strings.HasPrefix(e.Name(), ".ast_result_line_") && strings.HasSuffix(e.Name(), ".json") {
-				_ = os.Remove(filepath.Join(mcpData, e.Name()))
+				_ = os.Remove(filepath.Join(mpmData, e.Name()))
 			}
 		}
 	}
@@ -871,9 +874,9 @@ func (ai *ASTIndexer) indexWithOptions(projectRoot string, scope string, forceFu
 	dbPath := getDBPath(projectRoot)
 	outputPath := getOutputPath(projectRoot, "index")
 
-	// 确保 .mcp-data 目录存在
-	mcpData := filepath.Join(projectRoot, ".mcp-data")
-	_ = os.MkdirAll(mcpData, 0755)
+	// 确保 .mpm-data 目录存在
+	mpmData := filepath.Join(projectRoot, core.DataDirName)
+	_ = os.MkdirAll(mpmData, 0755)
 	// 清理旧文件
 	_ = os.Remove(outputPath)
 

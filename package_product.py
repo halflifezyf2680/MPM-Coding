@@ -39,7 +39,8 @@ def package_mpm():
     # 定义需要包含的核心根目录文件
     core_files = [
         "README.md",
-        "README_EN.md",
+        "README_ZH.md",
+        "README_EN.md",  # Stub redirect file
         "install.ps1",
         "package_product.py",
         "QUICKSTART.md",
@@ -69,6 +70,7 @@ def package_mpm():
                 target_dir,
                 ignore=shutil.ignore_patterns(
                     "__pycache__",
+                    ".mpm-data",
                     ".mcp-data",
                     ".git",
                     "*.pyc",

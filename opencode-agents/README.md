@@ -16,7 +16,7 @@
 
 ## 前置条件
 
-本套 agents 依赖 MPM-coding MCP 工具（例如 `MPM-coding__task_chain`、`MPM-coding__memo`、`MPM-coding__code_search` 等）。
+本套 agents 依赖 MPM-Coding MCP 工具（例如 `MPM-Coding__task_chain`、`MPM-Coding__memo`、`MPM-Coding__code_search` 等）。
 如果你的 OpenCode 没有加载对应 MCP server，这些工具调用会失败。
 
 ## 模型配置（必须校验）
@@ -32,10 +32,10 @@ opencode models
 
 ## 角色与用法
 
-- `mpm_pm`（primary）：推进长期 Epic；唯一操作者 `MPM-coding__task_chain`；通过 Task tool 派发子代理。
+- `mpm_pm`（primary）：推进长期 Epic；唯一操作者 `MPM-Coding__task_chain`；通过 Task tool 派发子代理。
 - `mpm_architect`（primary）：短期任务的架构级分析与任务包发布；不改代码；通过 Task tool 派发子代理。
-- `mpm_coder`（subagent）：高频落地实现；改完必须 `MPM-coding__memo`。
-- `mpm_expert`（subagent）：跨模块/高复杂任务；改完必须 `MPM-coding__memo`。
+- `mpm_coder`（subagent）：高频落地实现；改完必须 `MPM-Coding__memo`。
+- `mpm_expert`（subagent）：跨模块/高复杂任务；改完必须 `MPM-Coding__memo`。
 - `mpm_spider`（subagent, hidden）：外部资料调研，写入 `.tmp/spider_<topic_slug>.md`。
 
 LLM 文档写法规范与对齐策略见：`docs/LLM_FRIENDLY_AGENT_DOCS.md`。
@@ -60,7 +60,7 @@ Then launch OpenCode in your project directory.
 
 ## Prerequisites
 
-These agents depend on MPM-coding MCP tools (e.g., `MPM-coding__task_chain`, `MPM-coding__memo`, `MPM-coding__code_search`, etc.).
+These agents depend on MPM-Coding MCP tools (e.g., `MPM-Coding__task_chain`, `MPM-Coding__memo`, `MPM-Coding__code_search`, etc.).
 If your OpenCode doesn't have the corresponding MCP server loaded, these tool calls will fail.
 
 ## Model Configuration (Required)
@@ -76,10 +76,10 @@ See `docs/models.md` for more details.
 
 ## Roles and Usage
 
-- `mpm_pm` (primary): Drives long-term Epics; sole operator of `MPM-coding__task_chain`; dispatches sub-agents via Task tool.
+- `mpm_pm` (primary): Drives long-term Epics; sole operator of `MPM-Coding__task_chain`; dispatches sub-agents via Task tool.
 - `mpm_architect` (primary): Architecture-level analysis and task package publishing for short-term tasks; no code changes; dispatches sub-agents via Task tool.
-- `mpm_coder` (subagent): High-frequency implementation; must call `MPM-coding__memo` after changes.
-- `mpm_expert` (subagent): Cross-module / high-complexity tasks; must call `MPM-coding__memo` after changes.
+- `mpm_coder` (subagent): High-frequency implementation; must call `MPM-Coding__memo` after changes.
+- `mpm_expert` (subagent): Cross-module / high-complexity tasks; must call `MPM-Coding__memo` after changes.
 - `mpm_spider` (subagent, hidden): External research; writes to `.tmp/spider_<topic_slug>.md`.
 
 For LLM documentation conventions and alignment strategy, see: `docs/LLM_FRIENDLY_AGENT_DOCS.md`.

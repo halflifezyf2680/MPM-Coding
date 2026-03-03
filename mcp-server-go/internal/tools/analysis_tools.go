@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"mcp-server-go/internal/core"
 	"mcp-server-go/internal/services"
 	"os"
 	"path/filepath"
@@ -958,9 +959,9 @@ func wrapProjectMap(sm *SessionManager, ai *services.ASTIndexer) server.ToolHand
 
 			content := sb.String()
 			if len(content) > 2000 {
-				mcpDataDir := filepath.Join(sm.ProjectRoot, ".mcp-data")
-				_ = os.MkdirAll(mcpDataDir, 0755)
-				outputPath := filepath.Join(mcpDataDir, "project_map_structure.md")
+				mpmDataDir := filepath.Join(sm.ProjectRoot, core.DataDirName)
+				_ = os.MkdirAll(mpmDataDir, 0755)
+				outputPath := filepath.Join(mpmDataDir, "project_map_structure.md")
 				if err := os.WriteFile(outputPath, []byte(content), 0644); err == nil {
 					return mcp.NewToolResultText(fmt.Sprintf("⚠️ Map 内容较长 (%d chars)，已自动保存到项目文件：\n👉 `%s`\n\n请使用 view_file 查看。", len(content), outputPath)), nil
 				}
@@ -1013,12 +1014,12 @@ func wrapProjectMap(sm *SessionManager, ai *services.ASTIndexer) server.ToolHand
 
 		// 🆕 主动接管大输出：如果 > 2000 字符，保存到文件
 		if len(content) > 2000 {
-			mcpDataDir := filepath.Join(sm.ProjectRoot, ".mcp-data")
-			_ = os.MkdirAll(mcpDataDir, 0755)
+			mpmDataDir := filepath.Join(sm.ProjectRoot, core.DataDirName)
+			_ = os.MkdirAll(mpmDataDir, 0755)
 
 			// 按模式固定命名，每次直接覆盖（不保留历史版本）
 			filename := fmt.Sprintf("project_map_%s.md", level)
-			outputPath := filepath.Join(mcpDataDir, filename)
+			outputPath := filepath.Join(mpmDataDir, filename)
 
 			if err := os.WriteFile(outputPath, []byte(content), 0644); err == nil {
 				return mcp.NewToolResultText(fmt.Sprintf(

@@ -1,6 +1,6 @@
 # MPM 快速配置指南
 
-> 只讲安装与接入。功能说明和工具细节请看 `README.md` 与 `docs/MANUAL.md`。
+> 只讲安装与接入。功能说明和工具细节请看 `README_ZH.md` 与 `docs/MANUAL_ZH.md`。
 
 ## 1. 解压文件
 
@@ -15,7 +15,7 @@ mpm-windows-amd64/
 ├── ast_indexer.exe   # AST 索引器（被 mpm-go 调用）
 ├── docs/             # 文档
 ├── README.md
-└── README_EN.md
+└── README_ZH.md
 ```
 
 ## 2. 配置 MCP 客户端

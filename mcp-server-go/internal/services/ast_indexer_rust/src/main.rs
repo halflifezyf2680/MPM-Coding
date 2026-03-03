@@ -343,9 +343,9 @@ fn main() -> anyhow::Result<()> {
     let project_path = Path::new(&args.project);
 
     // Heartbeat setup
-    let mcp_data = project_path.join(".mcp-data");
-    let _ = fs::create_dir_all(&mcp_data);
-    let heartbeat_path = mcp_data.join("heartbeat");
+    let mpm_data = project_path.join(".mpm-data");
+    let _ = fs::create_dir_all(&mpm_data);
+    let heartbeat_path = mpm_data.join("heartbeat");
 
     if args.mode == "index" {
         run_indexer(&args, &heartbeat_path)?;
@@ -1137,11 +1137,11 @@ struct QueryResult {
     related_nodes: Vec<CallerInfo>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct CandidateMatch {
     node: Node,
     match_type: String,
-    score: f32, // 相似度分数 (0-1)
+    score: f32,
 }
 
 #[derive(Serialize)]
@@ -1160,17 +1160,21 @@ fn progressive_search(conn: &Connection, query_str: &str) -> Option<(Node, Strin
     best.map(|n| (n.0, n.1))
 }
 
-// 🆕 多候选渐进式搜索
+// 🆕 多候选渐进式搜索 (5层全部执行，不提前返回)
 fn progressive_search_multi(
     conn: &Connection,
     query_str: &str,
 ) -> (Option<(Node, String)>, Vec<CandidateMatch>, bool) {
     let mut candidates: Vec<CandidateMatch> = vec![];
-    let max_candidates = 5;
+    let max_candidates = 20; // 增加上限
 
     // Layer 1: 精确匹配 (score = 1.0)
     if let Some(node) = exact_match(conn, query_str) {
-        return (Some((node, "exact".to_string())), candidates, true);
+        candidates.push(CandidateMatch {
+            node,
+            match_type: "exact".to_string(),
+            score: 1.0,
+        });
     }
 
     // Layer 2: 前缀/后缀匹配 (score = 0.9)
@@ -1182,10 +1186,6 @@ fn progressive_search_multi(
             score: 0.9,
         });
     }
-    if !candidates.is_empty() {
-        let best = candidates[0].node.clone();
-        return (Some((best, "prefix_suffix".to_string())), candidates, true);
-    }
 
     // Layer 3: 子串匹配 (score = 0.8)
     let substring_matches = substring_match_multi(conn, query_str, max_candidates);
@@ -1196,24 +1196,16 @@ fn progressive_search_multi(
             score: 0.8,
         });
     }
-    if !candidates.is_empty() {
-        let best = candidates[0].node.clone();
-        return (Some((best, "substring".to_string())), candidates, true);
-    }
 
     // Layer 4: 编辑距离匹配 (score based on distance)
     let lev_matches = levenshtein_match_multi(conn, query_str, 3, max_candidates);
     for (node, dist) in lev_matches {
-        let score = 1.0 - (dist as f32 / 4.0); // distance 0=1.0, 1=0.75, 2=0.5, 3=0.25
+        let score = 1.0 - (dist as f32 / 4.0);
         candidates.push(CandidateMatch {
             node,
             match_type: format!("levenshtein_d{}", dist),
             score,
         });
-    }
-    if !candidates.is_empty() {
-        let best = candidates[0].node.clone();
-        return (Some((best, "levenshtein".to_string())), candidates, true);
     }
 
     // Layer 5: 词根匹配 (score = 0.5)
@@ -1225,12 +1217,39 @@ fn progressive_search_multi(
             score: 0.5,
         });
     }
-    if !candidates.is_empty() {
-        let best = candidates[0].node.clone();
-        return (Some((best, "stem".to_string())), candidates, true);
+
+    // 去重（按 canonical_id，保留 score 最高的）
+    use std::collections::HashMap;
+    let mut unique_map: HashMap<String, CandidateMatch> = HashMap::new();
+    for c in candidates {
+        let id = c.node.id.clone();
+        if let Some(existing) = unique_map.get(&id) {
+            if c.score > existing.score {
+                unique_map.insert(id, c);
+            }
+        } else {
+            unique_map.insert(id, c);
+        }
+    }
+    
+    let mut unique_candidates: Vec<CandidateMatch> = unique_map.into_values().collect();
+    unique_candidates.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    if unique_candidates.is_empty() {
+        return (None, unique_candidates, false);
     }
 
-    (None, candidates, false)
+    // 最佳匹配 = score 最高的第一个
+    let best = unique_candidates[0].clone();
+    (
+        Some((best.node, best.match_type)),
+        unique_candidates,
+        true,
+    )
 }
 
 // 🆕 修改：使用 canonical_id 而不是 symbol_id

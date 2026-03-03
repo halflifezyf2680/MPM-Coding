@@ -21,9 +21,9 @@ permission:
 ## 铁律
 
 1. **上游凭证不串台**：回报开头必须带上上级给的上游 `Task ID / Phase ID / Sub ID`（若有）。这些 ID 仅用于上级销账；若你自建内部 task_chain，内部 `task_id/sub_id` 不得冒充上游凭证。
-2. **术前必须成像**：动手前必须用 `MPM-coding__code_impact` + `MPM-coding__flow_trace` 查清影响链路，禁止盲改。
+2. **术前必须成像**：动手前必须用 `MPM-Coding__code_impact` + `MPM-Coding__flow_trace` 查清影响链路，禁止盲改。
 3. **深水区自己踩平**：遇到依赖地狱、并发问题、复杂 Bug，自己排查，不到万不得已不回报失败。
-4. **改完必须 memo**：所有代码修改完成且验证通过后调用 `MPM-coding__memo` 详细记录结构性或算法级改动原因。
+4. **改完必须 memo**：所有代码修改完成且验证通过后调用 `MPM-Coding__memo` 详细记录结构性或算法级改动原因。
 
 ---
 
@@ -54,7 +54,7 @@ task_chain 只在任务存在明显“多阶段推进”需求时启用，与推
 - 存在多轮验证/回归循环、需要拆成多个可验收阶段、或预计会被打断需要续传 → 启用 task_chain 防跑偏。
 
 ```
-MPM-coding__task_chain(
+MPM-Coding__task_chain(
   mode="init",
   // 注意：不得复用上游给的 task_id。内部链路统一用 local 前缀。
   task_id="local_expert_<自定义简短ID>",
@@ -68,11 +68,11 @@ MPM-coding__task_chain(
 ## 执行流程
 
 1. **读取情报**：若有 `.tmp/` 文件，先读取。
-2. **术前成像**：`MPM-coding__code_impact` + `MPM-coding__flow_trace` 确认影响范围。
+2. **术前成像**：`MPM-Coding__code_impact` + `MPM-Coding__flow_trace` 确认影响范围。
 3. **按需启用 task_chain**：当存在多轮验证/回归循环、需要拆成多个可验收阶段、或预计会被打断需要续传时启用；否则直接干。
 4. **精准手术**：大范围重构或算法实现，保持高内聚低耦合。
 5. **严谨验证**：跑完整测试套件，确认无回归。
-6. **memo 归档**：调用 `MPM-coding__memo` 记录核心改动。
+6. **memo 归档**：调用 `MPM-Coding__memo` 记录核心改动。
 7. **回报**：发送正式战报。
 
 ## 战报格式

@@ -1,87 +1,87 @@
-# MPM 完整手册
+# MPM Complete Manual
 
-> **从"聊天"到"可控交付"**
+> **From "Chatting" to "Controlled Delivery"**
 
-中文 | [English](MANUAL_EN.md)
+[中文](MANUAL_ZH.md) | English
 
 ---
 
-## 目录
+## Table of Contents
 
-1. [核心概念](#1-核心概念)
-2. [工具详解](#2-工具详解)
-3. [最佳实践](#3-最佳实践)
-4. [效能对比](#4-效能对比)
+1. [Core Concepts](#1-core-concepts)
+2. [Tool Reference](#2-tool-reference)
+3. [Best Practices](#3-best-practices)
+4. [Performance Comparison](#4-performance-comparison)
 5. [FAQ](#5-faq)
 
 ---
 
-## 1. 核心概念
+## 1. Core Concepts
 
-### 1.1 MPM 解决什么问题？
+### 1.1 What Problems Does MPM Solve?
 
-AI 编程的三大痛点：
+Three major pain points in AI coding:
 
-| 痛点 | 表现 | MPM 方案 |
-|------|------|---------|
-| **上下文迷失** | AI 不知道代码在哪 | `code_search` AST 精确定位 |
-| **盲目修改** | 改了这里，漏了那里 | `code_impact` 调用链分析 |
-| **记忆流失** | 每次对话从零开始 | `memo` + `system_recall` |
+| Pain Point | Symptom | MPM Solution |
+|------------|---------|--------------|
+| **Context Lost** | AI doesn't know where code is | `code_search` AST precision |
+| **Blind Changes** | Fixed here, broke there | `code_impact` call chain analysis |
+| **Memory Loss** | Start from zero every session | `memo` + `system_recall` |
 
-### 1.2 三层架构
+### 1.2 Three-Layer Architecture
 
 ```
-感知层          调度层          记忆层
+Perception      Scheduling      Memory
 ────────────────────────────────────────
-code_search     manager_analyze   memo
+code_search     manager_hooks     memo
 code_impact     task_chain        system_recall
 project_map     index_status      known_facts
 flow_trace
 ```
 
-- **感知层**：看代码（定位、分析、地图）
-- **调度层**：管任务（规划、执行、断点）
-- **记忆层**：存经验（备忘、召回、铁律）
+- **Perception**: See code (locate, analyze, map)
+- **Scheduling**: Manage tasks (plan, execute, checkpoint)
+- **Memory**: Store experience (memo, recall, rules)
 
-### 1.3 AST 索引原理
+### 1.3 AST Indexing Principles
 
-MPM 使用 Rust AST 引擎解析代码，维护三个核心字段：
+MPM uses a Rust AST engine to parse code, maintaining three core fields:
 
-| 字段 | 说明 | 示例 |
-|------|------|------|
-| `canonical_id` | 全局唯一标识 | `func:core/auth.go::Login` |
-| `scope_path` | 层级作用域 | `AuthManager::Login` |
-| `callee_id` | 精确调用链 | `func:db/query.go::Exec` |
+| Field | Description | Example |
+|-------|-------------|---------|
+| `canonical_id` | Globally unique identifier | `func:core/auth.go::Login` |
+| `scope_path` | Hierarchical scope | `AuthManager::Login` |
+| `callee_id` | Precise call chain | `func:db/query.go::Exec` |
 
-**为什么重要**：消除了"同名函数"歧义，`code_impact` 可以精确追踪多层调用链。
+**Why it matters**: Eliminates "same-name function" ambiguity, `code_impact` can precisely track multi-layer call chains.
 
 ---
 
-## 2. 工具详解
+## 2. Tool Reference
 
-### 2.1 代码定位（4个）
+### 2.1 Code Location (4 tools)
 
-#### project_map - 项目地图
+#### project_map - Project Map
 
-**触发词**：`mpm 地图`、`mpm 结构`
+**Triggers**: `mpm map`, `mpm structure`
 
-**用途**：接手新项目时的第一步，快速建立认知。
+**Purpose**: First step when taking over a new project, quickly build understanding.
 
-**参数**：
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `scope` | 目录范围 | 整个项目 |
-| `level` | `structure`(目录) / `symbols`(符号) | `symbols` |
+**Parameters**:
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `scope` | Directory scope | Entire project |
+| `level` | `structure`(dirs) / `symbols`(symbols) | `symbols` |
 
-**输出示例**：
+**Output Example**:
 ```
-📊 项目统计: 156 文件, 892 符号
+📊 Project Stats: 156 files, 892 symbols
 
-🔴 高复杂度热点:
+🔴 High Complexity Hotspots:
   - SessionManager::Handle (Score: 85)
   - PaymentService::Process (Score: 72)
 
-📁 src/core/ (12 文件)
+📁 src/core/ (12 files)
   ├── session.go
   │   └── func GetSession (L45-80) 🔴
   └── config.go
@@ -90,53 +90,55 @@ MPM 使用 Rust AST 引擎解析代码，维护三个核心字段：
 
 ---
 
-#### code_search - 符号定位
+#### code_search - Symbol Lookup
 
-**触发词**：`mpm 搜索`、`mpm 定位`
+**Triggers**: `mpm search`, `mpm locate`
 
-**用途**：精确定位函数/类定义，不靠字符串猜测。
+**Purpose**: Precisely locate function/class definitions, no string guessing.
 
-**参数**：
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `query` | 搜索关键词 | 必填 |
-| `scope` | 目录范围 | 整个项目 |
+**Parameters**:
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `query` | Search keyword | Required |
+| `scope` | Directory scope | Entire project |
 | `search_type` | `any`/`function`/`class` | `any` |
 
-**5层降级搜索**：
+**5-Layer Fallback Search**:
 ```
-1. 精确匹配 (exact)
-2. 前缀/后缀匹配 (prefix/suffix)
-3. 子串匹配 (substring)
-4. 编辑距离 (levenshtein)
-5. 词根匹配 (stem)
+1. Exact match
+2. Prefix/suffix match
+3. Substring match
+4. Levenshtein distance
+5. Stem match
 ```
 
-**输出示例**：
+**Output Example**:
 ```
-✅ 精确定义 (exact):
-  func Login @ src/auth/login.go L45-67
-  签名: func Login(ctx context.Context, cred Credentials) (*Token, error)
+### About Login
 
-🔍 相似符号:
+Best match: src/auth/login.go L45-67
+ID: func:src/auth/login.go::Login
+Signature: func Login(ctx context.Context, cred Credentials) (*Token, error)
+
+Other candidates:
   [func] LoginUser @ src/api/user.go (score: 0.85)
 ```
 
 ---
 
-#### code_impact - 影响分析
+#### code_impact - Impact Analysis
 
-**触发词**：`mpm 影响`、`mpm 依赖`
+**Triggers**: `mpm impact`, `mpm dependency`
 
-**用途**：**修改前必做**，评估影响范围。
+**Purpose**: **Must do before modifications**, assess impact scope.
 
-**参数**：
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `symbol_name` | 符号名 | 必填 |
-| `direction` | `backward`(谁调用我)/`forward`(我调用谁)/`both` | `backward` |
+**Parameters**:
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `symbol_name` | Symbol name | Required |
+| `direction` | `backward`(who calls me)/`forward`(I call whom)/`both` | `backward` |
 
-**输出示例**：
+**Output Example**:
 ```
 CODE_IMPACT_REPORT: GetSession
 RISK_LEVEL: high
@@ -159,474 +161,429 @@ LAYER_2_INDIRECT (11):
 
 ---
 
-#### flow_trace - 业务流程追踪
+#### flow_trace - Business Flow Trace
 
-**触发词**：`mpm 流程`、`mpm flow`
+**Triggers**: `mpm flow`
 
-**用途**：读取“入口-上游-下游”业务主链，比 `code_impact` 更偏流程理解。
+**Purpose**: Read the main business chain as "entry-upstream-downstream". Compared to `code_impact`, this focuses on flow comprehension.
 
-**参数**：
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `symbol_name` / `file_path` | 二选一（同时提供时优先 symbol） | - |
-| `scope` | 限定范围（大仓建议必填） | 空 |
+**Parameters**:
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `symbol_name` / `file_path` | One of the two (symbol wins if both provided) | - |
+| `scope` | Scope filter (recommended for large repositories) | empty |
 | `direction` | `backward` / `forward` / `both` | `both` |
-| `mode` | `brief` / `standard` / `deep`（渐进披露） | `brief` |
-| `max_nodes` | 输出节点预算上限 | `40` |
+| `mode` | `brief` / `standard` / `deep` (progressive disclosure) | `brief` |
+| `max_nodes` | Output node budget | `40` |
 
-**输出重点**：
-- 入口点与位置
-- 上下游关键节点
-- 关键路径 Top3
-- 阶段摘要 / 副作用（standard/deep）
-- 截断提示（避免 LLM 被超大输出淹没）
-
----
-
-### 2.2 任务管理（4个）
-
-#### manager_analyze - 任务情报简报
-
-**触发词**：`mpm 分析`、`mpm mg`
-
-**适用场景**：满足以下任意一个条件时可选使用：
-- 刚接手全陌生项目，没有任何代码线索
-- 上下文过多过杂，LLM 需要收敛注意力再出发
-
-**单点 Bug 修复、问题边界已清晰的场景不需要使用，直接用 `code_search` 定位即可。**
-
-**参数**：
-| 参数 | 说明 | 必填 |
-|------|------|------|
-| `task_description` | 原始任务描述 | ✅ |
-| `intent` | `DEBUG`/`DEVELOP`/`REFACTOR`/`RESEARCH` | ✅ |
-| `symbols` | 相关符号列表 | ✅ |
-| `step` | 1=分析, 2=生成策略 | 默认1 |
-
-**两步流程**：
-```
-Step 1: 分析
-  → AST 搜索定位符号
-  → 加载历史经验
-  → 复杂度评估
-  → 返回 task_id
-
-Step 2: 生成策略
-  → 基于分析结果动态生成战术建议
-  → 返回 strategic_handoff
-```
+**Output Focus**:
+- Entry point and location
+- Upstream/downstream key nodes
+- Critical paths Top 3
+- Stage summary / side-effects (standard/deep)
+- Budget truncation hints
 
 ---
 
-#### task_chain - 协议状态机任务链
+### 2.2 Task Management (3 tools)
 
-**触发词**：`mpm 任务链`、`mpm chain`
+#### task_chain - Protocol State Machine
 
-**用途**：大工程/长任务专用，用预定义“协议”驱动多阶段流转。支持 Gate 门控、Loop 子任务分发和跨会话持久化。
+**Triggers**: `mpm chain`, `mpm taskchain`
 
-**核心概念**：
-1. **协议 (Protocol)**：预定义的任务模板（如 `develop`, `debug`）。
-2. **阶段 (Phase)**：任务的不同生命周期，分为 `execute` (执行)、`gate` (校验)、`loop` (循环子任务)。
-3. **门控 (Gate)**：强制自审点，通过 `result=pass|fail` 控制流向。
+**Purpose**: Designed for large projects and long-running tasks. Uses predefined "protocols" to drive multi-phase workflows with built-in Gate checkpoints, Loop sub-tasks, and cross-session persistence.
 
-**操作模式 (Mode)**：
+**Core Concepts**:
+1. **Protocol**: A predefined task template (e.g., `develop`, `debug`).
+2. **Phase**: Different lifecycle stages of a task, categorized as `execute`, `gate`, or `loop`.
+3. **Gate**: A mandatory self-review checkpoint controlled by `result=pass|fail`.
 
-| 模式 | 必填参数 | 说明 |
-|------|----------|------|
-| `init` | `task_id`, `protocol` | 初始化任务链。默认 `protocol=linear` |
-| `start` | `task_id`, `phase_id` | 开始一个特定阶段 |
-| `complete` | `task_id`, `phase_id`, `summary` | 完成阶段。`gate` 类型需加 `result=pass\|fail` |
-| `spawn` | `task_id`, `phase_id`, `sub_tasks` | 在 `loop` 阶段批量分发子任务 |
-| `complete_sub` | `task_id`, `phase_id`, `sub_id`, `summary` | 完成单个子任务 |
-| `status` | `task_id` | 查看当前进度墙（自动识别协议） |
-| `resume` | `task_id` | 跨会话恢复任务（自动从数据库加载） |
-| `protocol` | - | 查看所有可用协议列表及其阶段定义 |
-| `finish` | `task_id` | 彻底关闭任务链 |
+**Operation Modes**:
 
-**内置协议流程表**：
+| Mode | Required Parameters | Description |
+|------|--------------------|-------------|
+| `init` | `task_id`, `protocol` | Initialize the task chain. Default `protocol=linear` |
+| `start` | `task_id`, `phase_id` | Start a specific phase |
+| `complete` | `task_id`, `phase_id`, `summary` | Complete a phase. `gate` types require `result=pass\|fail` |
+| `spawn` | `task_id`, `phase_id`, `sub_tasks` | Dispatch sub-tasks in a `loop` phase |
+| `complete_sub` | `task_id`, `phase_id`, `sub_id`, `summary` | Complete a single sub-task |
+| `status` | `task_id` | View current progress wall (auto-identifies protocol) |
+| `resume` | `task_id` | Restore task across sessions (loads automatically from DB) |
+| `protocol` | - | List all available protocols and their phase definitions |
+| `finish` | `task_id` | Permanently close the task chain |
 
-| 协议 | 流程 (Phases) | 场景 |
-|------|--------------|------|
-| `linear` | main (execute) | 确定性极强的一步走任务 |
-| `develop` | analyze → plan_gate → implement(loop) → verify_gate → finalize | 跨模块开发 |
-| `debug` | reproduce → locate → fix(loop) → verify_gate → finalize | Bug 排查 |
-| `refactor` | baseline → analyze → refactor(loop) → verify_gate → finalize | 大范围重构 |
+**Built-in Protocol Flow Table**:
 
-**自审与升级机制**：
+| Protocol | Flow (Phases) | Use Case |
+|----------|---------------|----------|
+| `linear` | main (execute) | Highly deterministic, single-step tasks |
+| `develop` | analyze → plan_gate → implement(loop) → verify_gate → finalize | Cross-module development |
+| `debug` | reproduce → locate → fix(loop) → verify_gate → finalize | Bug investigation |
+| `refactor` | baseline → analyze → refactor(loop) → verify_gate → finalize | Large-scale refactoring |
 
-系统内置了 Re-init 拦截逻辑，防止 LLM 在同一个 TaskID 上反复原地打转：
-- **第 1 次**：允许 Re-init（重置进度）。
-- **第 2 次**：强制拦截，要求 LLM 必须解释原因并请求人类介入。
+**Self-Review & Escalation**:
 
-**典型示例**：
+Built-in Re-init interception prevents the LLM from spinning in circles on the same TaskID:
+- **1st time**: Re-init allowed (resets progress).
+- **2nd time**: Hard block, requiring the LLM to explain the deviation and request human intervention.
+
+**Typical Usage**:
 
 ```javascript
-// 1. 初始化一个重构任务
-task_chain(mode="init", task_id="AUTH_REFACTOR", protocol="refactor", description="重构登录鉴权模块")
+// 1. Initialize a refactoring task
+task_chain(mode="init", task_id="AUTH_REFACTOR", protocol="refactor", description="Refactor auth module")
 
-// 2. 完成基线检查
-task_chain(mode="complete", task_id="AUTH_REFACTOR", phase_id="baseline", summary="当前测试全绿")
+// 2. Complete baseline check
+task_chain(mode="complete", task_id="AUTH_REFACTOR", phase_id="baseline", summary="Current tests pass")
 
-// 3. 进入重构循环
+// 3. Enter refactor loop
 task_chain(mode="spawn", task_id="AUTH_REFACTOR", phase_id="refactor", sub_tasks=[
-  {"name": "解耦 SessionStore"},
-  {"name": "重写 JWT 签名逻辑"}
+  {"name": "Decouple SessionStore"},
+  {"name": "Rewrite JWT signing"}
 ])
 
-// 4. 完成子任务
-task_chain(mode="complete_sub", task_id="AUTH_REFACTOR", phase_id="refactor", sub_id="sub_001", summary="Store 已提取为接口")
+// 4. Complete a sub-task
+task_chain(mode="complete_sub", task_id="AUTH_REFACTOR", phase_id="refactor", sub_id="sub_001", summary="Store extracted to interface")
 ```
 
-**为什么在 V3 弃用了 Linear Step 模式？**
-因为 V3 的 `linear` 协议通过 `loop` 阶段可以完美实现旧版的动态步骤能力，且具备数据库持久化和多级自审能力，不再依赖不稳定的内存状态。
-
-| 工具 | 触发词 | 用途 |
-|------|--------|------|
-| `manager_create_hook` | `mpm 挂起` | 创建待办/断点 |
-| `manager_list_hooks` | `mpm 待办列表` | 查看待办 |
-| `manager_release_hook` | `mpm 释放` | 完成待办 |
-
-**Hook 特性**：支持 `expires_in_hours` 过期时间。
+**Why was Linear Step Mode deprecated in V3?**
+The V3 `linear` protocol, combined with `loop` phases, perfectly replaces the dynamic step capabilities of the old mode while providing robust DB persistence and multi-level self-review, no longer relying on volatile memory state.
 
 ---
 
-### 2.3 记忆系统（3个）
+#### Hook Series (3 tools)
 
-#### memo - 变更备忘录
+| Tool | Trigger | Purpose |
+|------|---------|---------|
+| `manager_create_hook` | `mpm suspend` | Create todo/checkpoint |
+| `manager_list_hooks` | `mpm todolist` | View todos |
+| `manager_release_hook` | `mpm release` | Complete todo |
 
-**触发词**：`mpm 记录`、`mpm memo`
+**Hook Feature**: Supports `expires_in_hours` expiration time.
 
-**用途**：**任何代码修改后必调用**，记录"为什么改"。
+---
 
-**参数**：
-| 字段 | 说明 | 示例 |
-|------|------|------|
-| `category` | 分类 | `修改`/`开发`/`决策`/`避坑` |
-| `entity` | 改动实体 | `session.go` |
-| `act` | 行为 | `修复幂等问题` |
-| `path` | 文件路径 | `core/session.go` |
-| `content` | 详细说明 | 为什么这么改 |
+### 2.3 Memory System (3 tools)
 
-**示例**：
+#### memo - Change Documentation
+
+**Triggers**: `mpm memo`, `mpm record`
+
+**Purpose**: **Must call after any code change**, record "why changed".
+
+**Parameters**:
+| Field | Description | Example |
+|-------|-------------|---------|
+| `category` | Category | `fix`/`develop`/`decision`/`pitfall` |
+| `entity` | Changed entity | `session.go` |
+| `act` | Action | `fix idempotency issue` |
+| `path` | File path | `core/session.go` |
+| `content` | Detailed explanation | Why this change |
+
+**Example**:
 ```javascript
 memo(items=[{
-  category: "修复",
+  category: "fix",
   entity: "GetSession",
-  act: "添加幂等检查",
+  act: "add idempotency check",
   path: "core/session.go",
-  content: "防止重复请求创建多个 session"
+  content: "prevent duplicate requests from creating multiple sessions"
 }])
 ```
 
 ---
 
-#### system_recall - 记忆召回
+#### system_recall - Memory Retrieval
 
-**触发词**：`mpm 历史`、`mpm recall`
+**Triggers**: `mpm recall`, `mpm history`
 
-**用途**：检索过去的决策和修改，**"宽进严出"** 策略。
+**Purpose**: Retrieve past decisions and changes, **"Wide-In Strict-Out"** strategy.
 
-**参数**：
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `keywords` | 关键词（多字段模糊匹配） | 必填 |
-| `category` | 类型过滤 | 全部 |
-| `limit` | 返回条数 | 20 |
+**Parameters**:
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `keywords` | Keywords (multi-field fuzzy match) | Required |
+| `category` | Type filter | All |
+| `limit` | Return count | 20 |
 
-**宽进严出策略**：
-- **宽进**：在 `Entity` / `Act` / `Content` 多字段中 OR 匹配
-- **严出**：通过 `category` 过滤 + `limit` 限制
-- **精细输出**：分类展示（Known Facts 优先）+ 时间戳（近→远）
+**Wide-In Strict-Out Strategy**:
+- **Wide-In**: OR match across `Entity` / `Act` / `Content` fields
+- **Strict-Out**: Filter by `category` + limit by `limit`
+- **Refined Output**: Categorized display (Known Facts first) + timestamp (recent→old)
 
-**输出示例**：
+**Output Example**:
 ```
 ## 📌 Known Facts (2)
 
-- **[避坑]** 修改 session 逻辑前必须先检查依赖 _(ID: 1, 2026-01-15)_
+- **[pitfall]** Must check dependencies before modifying session logic _(ID: 1, 2026-01-15)_
 
 ## 📝 Memos (3)
 
-- **[42] 2026-02-15 14:30** (修复) 添加幂等检查: 防止重复请求...
-- **[41] 2026-02-14 10:00** (开发) 新增 timeout 参数: 适配阿里云...
-```
-
-**典型用法**：
-```
-system_recall(keywords="session timeout")
-  → 找到所有涉及 session/timeout 的历史记录
-
-system_recall(keywords="幂等", category="避坑")
-  → 只返回避坑类记录
+- **[42] 2026-02-15 14:30** (fix) add idempotency check: prevent duplicate requests...
+- **[41] 2026-02-14 10:00** (develop) add timeout parameter: adapt to Alibaba Cloud...
 ```
 
 ---
 
-#### known_facts - 铁律存档
+#### known_facts - Rules Archive
 
-**触发词**：`mpm 铁律`、`mpm 避坑`
+**Triggers**: `mpm rule`, `mpm pitfall`
 
-**用途**：存档经过验证的规则，`manager_analyze` 会自动加载。
+**Purpose**: Archive verified rules for later retrieval via `system_recall`.
 
-**示例**：
+**Example**:
 ```javascript
-known_facts(type="避坑", summarize="修改 session 逻辑前必须先检查依赖")
+known_facts(type="pitfall", summarize="Must check dependencies before modifying session logic")
 ```
 
 ---
 
-### 2.4 增强工具（3个）
+### 2.4 Enhancement Tools (3 tools)
 
-#### persona - 人格管理
+#### persona - Personality Management
 
-**触发词**：`mpm 人格`
+**Triggers**: `mpm persona`
 
-**设计理念**：人格是 **Buff 机制**，不是持久配置。
+**Design Philosophy**: Personality is a **Buff mechanism**, not persistent config.
 
-| 特性 | 说明 |
-|------|------|
-| **临时性** | 切换人格 = 临时加 buff，用完即走 |
-| **不持久化** | 不存数据库，不跨会话 |
-| **健康指示** | 人格表现模糊 = 上下文已稀释，需要处理 |
+| Feature | Description |
+|---------|-------------|
+| **Temporary** | Switch personality = temporary buff, done when finished |
+| **No Persistence** | Not stored in DB, not cross-session |
+| **Health Indicator** | Blurred personality = context diluted, needs attention |
 
-**上下文稀释判断**：
+**Context Dilution Detection**:
 
-人格表现强度可作为上下文健康的**信号**：
+Personality expression strength serves as a **signal** for context health:
 
-| 人格表现 | 含义 | 建议 |
-|---------|------|------|
-| 风格鲜明 | 上下文健康 | 继续当前对话 |
-| 表现模糊 | context 已稀释 | 新开对话 / compact / 输入提示词收敛注意力 |
+| Personality Expression | Meaning | Suggestion |
+|----------------------|---------|------------|
+| Distinct style | Context healthy | Continue current session |
+| Blurred expression | Context diluted | New session / compact / input prompt to converge attention |
 
-**操作模式**：
+**Operation Modes**:
 
-| 模式 | 说明 | 示例 |
-|------|------|------|
-| `list` | 列出所有人格 | `persona(mode="list")` |
-| `activate` | 激活人格 | `persona(mode="activate", name="zhuge")` |
-| `create` | 新增人格 | `persona(mode="create", name="my_expert", ...)` |
-| `update` | 更新人格 | `persona(mode="update", name="my_expert", ...)` |
-| `delete` | 删除人格 | `persona(mode="delete", name="my_expert")` |
+| Mode | Description | Example |
+|------|-------------|---------|
+| `list` | List all personalities | `persona(mode="list")` |
+| `activate` | Activate personality | `persona(mode="activate", name="zhuge")` |
+| `create` | Create personality | `persona(mode="create", name="my_expert", ...)` |
+| `update` | Update personality | `persona(mode="update", name="my_expert", ...)` |
+| `delete` | Delete personality | `persona(mode="delete", name="my_expert")` |
 
-**创建人格参数**：
-| 参数 | 说明 |
-|------|------|
-| `display_name` | 显示名称 |
-| `hard_directive` | 核心指令 |
-| `style_must` | 必须遵守的风格 |
-| `style_signature` | 标志性表达 |
-| `style_taboo` | 禁用表达 |
-| `triggers` | 触发词 |
-
-**内置人格**：
-| 人格 | 代号 | 风格强度 | 适用场景 |
-|------|------|---------|---------|
-| 孔明 | `zhuge` | 中 | 架构设计、代码审查 |
-| 懂王 | `trump` | 强 | 头脑风暴、打破僵局 |
-| 哆啦 | `doraemon` | 中 | 新手引导、编写教程 |
-| 柯南 | `detective_conan` | 中 | Bug 排查、日志分析 |
+**Built-in Personalities**:
+| Personality | Code | Style Strength | Use Case |
+|-------------|------|----------------|----------|
+| Zhuge Liang | `zhuge` | Medium | Architecture design, code review |
+| Trump | `trump` | Strong | Brainstorming, break deadlock |
+| Doraemon | `doraemon` | Medium | Beginner guidance, tutorial writing |
+| Detective Conan | `detective_conan` | Medium | Bug investigation, log analysis |
 
 ---
 
-#### open_timeline - 项目演进
+#### open_timeline - Project Evolution
 
-**触发词**：`mpm 时间线`
+**Triggers**: `mpm timeline`
 
-**用途**：生成 HTML 可视化项目演进历史。
+**Purpose**: Generate HTML visualization of project evolution history.
 
 ---
 
-## 3. 最佳实践
+## 3. Best Practices
 
-### 3.0 先接管规则（必须）
+### 3.0 Rules First (Required)
 
-初始化后，优先将 `_MPM_PROJECT_RULES.md` 注入你使用的客户端系统规则，再开始任何开发任务。
+After initialization, apply `_MPM_PROJECT_RULES.md` to your client system rules before starting any coding task.
 
-**最小步骤**：
+**Minimal steps**:
 
-1. 执行 `initialize_project`
-2. 打开项目根目录 `_MPM_PROJECT_RULES.md`
-3. 将全文粘贴到客户端的系统规则区域
+1. Run `initialize_project`
+2. Open `_MPM_PROJECT_RULES.md` in project root
+3. Paste it into your client's system-rules area
 
-**常见客户端放置位置**（不同版本命名可能略有差异）：
+**Common client locations** (labels vary by version):
 
-| 客户端 | 建议放置位置 |
-|------|-------------|
+| Client | Recommended location |
+|--------|----------------------|
 | Claude Code | System Prompt / Project Instructions |
 | OpenCode | System Rules / Workspace Rules |
 | Cursor | Rules for AI / Project Rules |
 
-**推荐首句**：
+**Recommended first prompt**:
 
-`先读取并严格遵守 _MPM_PROJECT_RULES.md，再执行任务。`
+`Read and strictly follow _MPM_PROJECT_RULES.md before executing tasks.`
 
-### 3.1 标准工作流
+### 3.1 Standard Workflow
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│    定位     │ ─▶ │    执行     │ ─▶ │    记录     │
-│ code_search │     │ 代码修改    │     │   memo      │
+│   Locate    │ ──▶ │   Execute   │ ──▶ │   Record    │
+│ code_search │     │ Code Change │     │    memo     │
 │ code_impact │     │             │     │             │
 └─────────────┘     └─────────────┘     └─────────────┘
        │                   ▲                   │
        └───────────────────┴───────────────────┘
 
-[可选] 项目文件数 > 100 且用户未提及任何符号时，在定位阶段前可先调用 manager_analyze。
+[Recommended] When project has > 100 files and user mentions no symbols,
+run `project_map` first, then use `flow_trace` to narrow the main chain.
 ```
 
-### 3.2 黄金法则
+### 3.2 Golden Rules
 
-| 法则 | 说明 |
-|------|------|
-| **修改前必定位** | 先 `code_search` 再改代码 |
-| **大改动必评估** | 先 `code_impact` 看影响 |
-| **变更即记录** | 修改后必调用 `memo` |
-| **新对话读日志** | 先读 `dev-log.md` 恢复上下文 |
+| Rule | Description |
+|------|-------------|
+| **Locate Before Modify** | `code_search` before changing code |
+| **Assess Before Big Change** | `code_impact` to see impact |
+| **Record Every Change** | Must call `memo` after modification |
+| **Read Log on New Session** | Read `dev-log.md` to restore context |
 
-### 3.3 修改代码标准流程
+### 3.3 Standard Code Modification Flow
 
 ```
-1. code_search(query="目标函数")      # 定位
-2. code_impact(symbol_name="目标函数") # 评估影响
-3. (阅读代码)
-4. (执行修改)
-5. memo(items=[{...}])                # 记录
+1. code_search(query="target_function")      # Locate
+2. code_impact(symbol_name="target_function") # Assess impact
+3. (Read code)
+4. (Execute modification)
+5. memo(items=[{...}])                        # Record
 ```
 
-### 3.4 命名规范（Vibe Coding）
+### 3.4 Naming Conventions (Vibe Coding)
 
-**三大法则**：
+**Three Rules**:
 
-1. **符号锚定**：拒绝通用词
+1. **Symbol Anchoring**: Reject generic words
    - ❌ `data = get_data()`
    - ✅ `verified_payload = auth_service.fetch_verified_payload()`
 
-2. **前缀即领域**：使用 `domain_action_target`
-   - `ui_btn_submit`、`api_req_login`、`db_conn_main`
+2. **Prefix as Domain**: Use `domain_action_target`
+   - `ui_btn_submit`, `api_req_login`, `db_conn_main`
 
-3. **可检索性优先**：名字越长，冲突越少
-   - `transaction_unique_trace_id` 比 `id` 更易搜索
-
----
-
-## 4. 效能对比
-
-### 4.1 Case 1：符号定位
-
-**任务**：分析 `memo` 工具的实现逻辑
-
-| 指标 | 无 MPM | 有 MPM | 提升 |
-|------|--------|--------|------|
-| 步骤数 | 12+ 步 | 3 步 | **300%** |
-| 工具调用 | 10+ 次 | 2 次 | **400%** |
-| 首步命中率 | 0% | 100% | **∞** |
-
-**原因**：`code_search` 直接返回精确坐标（文件:行号），无需反复试错。
+3. **Searchability First**: Longer names, fewer conflicts
+   - `transaction_unique_trace_id` is easier to search than `id`
 
 ---
 
-### 4.2 Case 2：影响评估
+## 4. Performance Comparison
 
-**任务**：评估修改 `session.go` 的风险
+### 4.1 Case 1: Symbol Location
 
-| 维度 | 无 MPM | 有 MPM |
-|------|--------|--------|
-| 风险感知 | 基于局部猜测 | **AST 调用链分析** |
-| Token 消耗 | 通读文件 (4000+) | 地图摘要 (~800) |
-| 输出 | 模糊反问 | **精确修改清单** |
+**Task**: Analyze `memo` tool implementation logic
 
----
+| Metric | Without MPM | With MPM | Improvement |
+|--------|-------------|----------|-------------|
+| Steps | 12+ | 3 | **300%** |
+| Tool calls | 10+ | 2 | **400%** |
+| First-step accuracy | 0% | 100% | **∞** |
 
-### 4.3 Case 3：项目认知
-
-**任务**：冷启动理解 300+ 文件的新项目
-
-| 指标 | 无 MPM | 有 MPM |
-|------|--------|--------|
-| 总耗时 | 40 秒 | **15 秒** |
-| 工具调用 | 4+ 次 | 1 次 |
-| 认知路径 | 配置→源码→拼装 | **直达结构化地图** |
+**Reason**: `code_search` directly returns precise coordinates (file:line), no trial and error.
 
 ---
 
-### 4.4 Case 4：灾难恢复
+### 4.2 Case 2: Impact Assessment
 
-**场景**：误执行 `git reset --hard`，丢失一天未提交的代码
+**Task**: Assess risk of modifying `session.go`
 
-| 维度 | Git | MPM 数据库 |
-|------|-----|-----------|
-| 记录触发 | 显式 commit | **修改即 memo** |
-| 覆盖范围 | 物理文本 | **意图 + 语义** |
-| 恢复成本 | 手动重写 | **指导性恢复** |
+| Dimension | Without MPM | With MPM |
+|-----------|-------------|----------|
+| Risk perception | Based on local guessing | **AST call chain analysis** |
+| Token consumption | Read entire files (4000+) | Map summary (~800) |
+| Output | Vague questions | **Precise modification checklist** |
 
-**结论**：MPM 保护的是开发过程，Git 保护的是代码。
+---
+
+### 4.3 Case 3: Project Understanding
+
+**Task**: Cold-start understanding of a 300+ file project
+
+| Metric | Without MPM | With MPM |
+|--------|-------------|----------|
+| Total time | 40 seconds | **15 seconds** |
+| Tool calls | 4+ | 1 |
+| Cognitive path | Config→Source→Assembly | **Direct to structured map** |
+
+---
+
+### 4.4 Case 4: Disaster Recovery
+
+**Scenario**: Accidentally ran `git reset --hard`, lost a day of uncommitted code
+
+| Dimension | Git | MPM Database |
+|-----------|-----|--------------|
+| Record trigger | Explicit commit | **Memo on every change** |
+| Coverage | Physical text | **Intent + Semantics** |
+| Recovery cost | Manual rewrite | **Guided recovery** |
+
+**Conclusion**: MPM protects the development process, Git protects the code.
 
 ---
 
 ## 5. FAQ
 
-### Q1: `initialize_project` 什么时候需要调用？
+### Q1: When should I call `initialize_project`?
 
-**只在以下情况**：
-- 重启了 MCP Server / IDE
-- 首次使用 MPM
+**Only in these cases**:
+- Restarted MCP Server / IDE
+- First time using MPM
 
-**高级选项**：
-- `force_full_index=true`：强制全量索引（禁用大仓 bootstrap 策略）
-- `index_status`：查看后台索引进度/心跳/数据库体积
+**Advanced options**:
+- `force_full_index=true`: force full indexing (disable bootstrap strategy for large repositories)
+- `index_status`: inspect background indexing progress / heartbeat / database file sizes
 
-**如果只是新开对话**：直接读 `dev-log.md` 即可，无需重新初始化。
-
----
-
-### Q2: `code_search` 和 IDE 自带搜索有什么区别？
-
-| 维度 | IDE 搜索 | `code_search` |
-|------|---------|---------------|
-| 匹配方式 | 文本级 | **AST 符号级** |
-| 同名歧义 | 无法区分 | **canonical_id 精确** |
-| 上下文 | 需手动查看 | **自动返回签名** |
-
-**建议**：先用 `code_search` 定位，再用 IDE 精读。
+**If just starting a new conversation**: Just read `dev-log.md`, no need to reinitialize.
 
 ---
 
-### Q3: DICE 复杂度算法是什么？
+### Q2: What's the difference between `code_search` and IDE search?
 
-基于 **精确调用链** 计算复杂度：
+| Dimension | IDE Search | `code_search` |
+|-----------|------------|---------------|
+| Match method | Text level | **AST symbol level** |
+| Same-name ambiguity | Cannot distinguish | **canonical_id precision** |
+| Context | Need manual viewing | **Auto-return signature** |
+
+**Suggestion**: Use `code_search` to locate, then IDE to read in detail.
+
+---
+
+### Q3: What is the DICE complexity algorithm?
+
+Calculates complexity based on **precise call chains**:
 
 ```
 complexity_score = 
-    (out_degree × 2.0) +   // Fan-out: 调用了多少
-    (in_degree × 1.0)      // Fan-in: 被多少人依赖
+    (out_degree × 2.0) +   // Fan-out: how many it calls
+    (in_degree × 1.0)      // Fan-in: how many depend on it
 ```
 
-**评分等级**：
-| 分数 | 等级 | 建议 |
-|------|------|------|
-| 0-20 | Simple | 直接修改 |
-| 20-50 | Medium | 先看调用者 |
-| 50-80 | High | 先 `code_impact` |
-| 80+ | Extreme | 需要详细规划 |
+**Rating Levels**:
+| Score | Level | Suggestion |
+|-------|-------|------------|
+| 0-20 | Simple | Modify directly |
+| 20-50 | Medium | Check callers first |
+| 50-80 | High | Run `code_impact` first |
+| 80+ | Extreme | Need detailed planning |
 
 ---
 
-### Q4: 数据存储在哪里？
+### Q4: Where is data stored?
 
-| 数据 | 位置 |
-|------|------|
-| AST 索引 | `.mcp-data/symbols.db` (SQLite) |
-| Memos | `.mcp-data/mcp_memory.db` |
-| 人类可读日志 | `dev-log.md` |
-| 项目规则 | `_MPM_PROJECT_RULES.md` |
+| Data | Location |
+|------|----------|
+| AST index | `.mpm-data/symbols.db` (SQLite) |
+| Memos | `.mpm-data/mcp_memory.db` |
+| Human-readable log | `dev-log.md` |
+| Project rules | `_MPM_PROJECT_RULES.md` |
 
-**建议**：`.mcp-data/` 加入 `.gitignore`，但 `dev-log.md` 可提交。
+**Suggestion**: Add `.mpm-data/` to `.gitignore`. `dev-log.md` is auto-generated and should also be ignored (recommended).
+
+**Project Binding**: `initialize_project` creates `.mpm-data/project_config.json` as an anchor. Future sessions auto-bind to this project root. If multiple anchors are found under a workspace aggregator folder, MPM refuses to guess and requires explicit `project_root`.
 
 ---
 
-### Q5: 支持哪些语言？
+### Q5: Which languages are supported?
 
-| 语言 | 扩展名 |
-|------|--------|
+| Language | Extensions |
+|----------|------------|
 | Python | .py |
 | Go | .go |
 | JavaScript/TypeScript | .js, .ts, .tsx, .mjs |
@@ -636,22 +593,21 @@ complexity_score =
 
 ---
 
-## 触发词速查表
+## Trigger Quick Reference
 
-| 分类 | 触发词 | 工具 |
-|------|--------|------|
-| 系统 | `mpm 初始化` | `initialize_project` |
-| 系统 | `mpm 索引状态` `mpm index status` | `index_status` |
-| 定位 | `mpm 搜索` `mpm 定位` | `code_search` |
-| 分析 | `mpm 影响` `mpm 依赖` | `code_impact` |
-| 地图 | `mpm 地图` `mpm 结构` | `project_map` |
-| 流程 | `mpm 流程` `mpm flow` | `flow_trace` |
-| 任务 | `mpm 分析` `mpm mg` | `manager_analyze` |
-| 链式 | `mpm 任务链` `mpm chain` | `task_chain` |
-| 待办 | `mpm 挂起` `mpm 待办列表` `mpm 释放` | Hook 系列 |
-| 记忆 | `mpm 记录` `mpm 历史` `mpm 铁律` | 记忆系列 |
-| 人格 | `mpm 人格` | `persona` |
-| 可视 | `mpm 时间线` | `open_timeline` |
+| Category | Triggers | Tool |
+|----------|----------|------|
+| System | `mpm init` | `initialize_project` |
+| System | `mpm index status` | `index_status` |
+| Location | `mpm search` `mpm locate` | `code_search` |
+| Analysis | `mpm impact` `mpm dependency` | `code_impact` |
+| Map | `mpm map` `mpm structure` | `project_map` |
+| Flow | `mpm flow` | `flow_trace` |
+| Chain | `mpm chain` `mpm taskchain` | `task_chain` |
+| Todo | `mpm suspend` `mpm todolist` `mpm release` | Hook Series |
+| Memory | `mpm memo` `mpm recall` `mpm rule` | Memory Series |
+| Persona | `mpm persona` | `persona` |
+| Visual | `mpm timeline` | `open_timeline` |
 
 ---
 

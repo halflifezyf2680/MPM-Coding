@@ -52,6 +52,7 @@ jobs:
           Copy-Item mcp-server-go/bin/mpm-go.exe release/mpm-windows-amd64/
           Copy-Item mcp-server-go/bin/ast_indexer.exe release/mpm-windows-amd64/
           Copy-Item README.md release/mpm-windows-amd64/
+          Copy-Item README_ZH.md release/mpm-windows-amd64/
           Copy-Item README_EN.md release/mpm-windows-amd64/
           Copy-Item QUICKSTART.md release/mpm-windows-amd64/
           Copy-Item QUICKSTART_EN.md release/mpm-windows-amd64/
@@ -110,6 +111,7 @@ jobs:
           cp mcp-server-go/bin/mpm-go release/mpm-linux-amd64/
           cp mcp-server-go/bin/ast_indexer release/mpm-linux-amd64/
           cp README.md release/mpm-linux-amd64/
+          cp README_ZH.md release/mpm-linux-amd64/
           cp README_EN.md release/mpm-linux-amd64/
           cp QUICKSTART.md release/mpm-linux-amd64/
           cp QUICKSTART_EN.md release/mpm-linux-amd64/
@@ -189,6 +191,7 @@ jobs:
           cp mcp-server-go/bin/mpm-go release/mpm-darwin-universal/
           cp mcp-server-go/bin/ast_indexer release/mpm-darwin-universal/
           cp README.md release/mpm-darwin-universal/
+          cp README_ZH.md release/mpm-darwin-universal/
           cp README_EN.md release/mpm-darwin-universal/
           cp QUICKSTART.md release/mpm-darwin-universal/
           cp QUICKSTART_EN.md release/mpm-darwin-universal/
@@ -239,7 +242,7 @@ jobs:
           tag_name: ${{ steps.version.outputs.VERSION }}
           name: MPM ${{ steps.version.outputs.VERSION }}
           body: |
-            ## MPM - Vibe Coding MCP
+            ## MPM-Coding MCP
             
             ### Downloads
             

@@ -124,28 +124,74 @@ func wrapSearch(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerF
 		// Fallback trigger: No Exact Match found in AST (after filtering)
 		useGrep := astResult == nil || astResult.FoundSymbol == nil
 
-		// 如果 AST 找到了精确匹配，直接展示，不进行 grep (避免噪音)
+		// 如果 AST 找到了最佳匹配，展示详情
 		if astResult != nil && astResult.FoundSymbol != nil {
-			sb.WriteString(fmt.Sprintf("✅ **精确定义** (%s):\n", astResult.MatchType))
+			sb.WriteString(fmt.Sprintf("✅ **最佳匹配** (%s):\n", astResult.MatchType))
 			node := astResult.FoundSymbol
+
+			// canonical_id (唯一标识)
 			sb.WriteString(fmt.Sprintf("- **%s** `%s` @ `%s` L%d-%d\n",
 				node.NodeType, node.Name, node.FilePath, node.LineStart, node.LineEnd))
+			sb.WriteString(fmt.Sprintf("  ID: `%s`\n", node.ID))
 
 			if node.Signature != "" {
-				sb.WriteString(fmt.Sprintf("  Config: `%s`\n", node.Signature))
+				sb.WriteString(fmt.Sprintf("  签名: `%s`\n", node.Signature))
 			}
-			sb.WriteString("\n")
-		} else if astResult != nil && len(astResult.Candidates) > 0 {
-			// 展示 AST 候选
-			sb.WriteString("🔍 **相似符号** (AST):\n")
-			for i, c := range astResult.Candidates {
-				if i >= 5 {
-					break
+
+			// 调用关系（它调用的函数）
+			if len(node.Calls) > 0 {
+				sb.WriteString(fmt.Sprintf("  调用: %d 个函数\n", len(node.Calls)))
+				for i, call := range node.Calls {
+					if i >= 5 {
+						sb.WriteString(fmt.Sprintf("    ... (还有 %d 个)\n", len(node.Calls)-5))
+						break
+					}
+					sb.WriteString(fmt.Sprintf("    - `%s`\n", call))
 				}
-				sb.WriteString(fmt.Sprintf("- [%s] `%s` @ `%s` (score: %.2f)\n",
-					c.Node.NodeType, c.Node.Name, c.Node.FilePath, c.Score))
 			}
+
+			// 调用者（谁在调用它）
+			if len(astResult.RelatedNodes) > 0 {
+				sb.WriteString(fmt.Sprintf("  被调用: %d 处\n", len(astResult.RelatedNodes)))
+				for i, caller := range astResult.RelatedNodes {
+					if i >= 5 {
+						sb.WriteString(fmt.Sprintf("    ... (还有 %d 处)\n", len(astResult.RelatedNodes)-5))
+						break
+					}
+					sb.WriteString(fmt.Sprintf("    - [%s] `%s` @ `%s` L%d\n",
+						caller.CallType, caller.Node.Name, caller.Node.FilePath, caller.Node.LineStart))
+				}
+			}
+
 			sb.WriteString("\n")
+		}
+
+		// 候选列表（即使有最佳匹配也展示，帮助用户发现其他选项）
+		if astResult != nil && len(astResult.Candidates) > 0 {
+			// 过滤掉已在 found_symbol 中展示的
+			var filteredCandidates []services.CandidateMatch
+			if astResult.FoundSymbol != nil {
+				for _, c := range astResult.Candidates {
+					if c.Node.ID != astResult.FoundSymbol.ID {
+						filteredCandidates = append(filteredCandidates, c)
+					}
+				}
+			} else {
+				filteredCandidates = astResult.Candidates
+			}
+
+			if len(filteredCandidates) > 0 {
+				sb.WriteString(fmt.Sprintf("🔍 **其他候选** (AST, 共 %d 个):\n", len(filteredCandidates)))
+				for i, c := range filteredCandidates {
+					if i >= 5 {
+						sb.WriteString(fmt.Sprintf("  ... (还有 %d 个)\n", len(filteredCandidates)-5))
+						break
+					}
+					sb.WriteString(fmt.Sprintf("- [%s] `%s` @ `%s` (score: %.2f)\n",
+						c.Node.NodeType, c.Node.Name, c.Node.FilePath, c.Score))
+				}
+				sb.WriteString("\n")
+			}
 		}
 
 		// 3. Ripgrep Fallback (Text Search & Deep Context)

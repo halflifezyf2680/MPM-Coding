@@ -15,7 +15,7 @@
 
 | 场景 | 必须使用的工具 |
 |------|---------------|
-| 刚接手陌生项目且无任何代码线索 / 上下文过多需收敛注意力 | `manager_analyze` (可选) |
+| 刚接手陌生项目且无任何代码线索 / 上下文过多需收敛注意力 | `project_map` / `flow_trace` |
 | 任务涉及多模块/多阶段修改，预计需要多轮对话才能完成 | `task_chain` (协议状态机) |
 | 刚接手项目 / 宏观探索 | `project_map` |
 | 理解业务逻辑主链 | `flow_trace` |
@@ -39,21 +39,21 @@
 
 ## 检测结果
 
-| 项目类型 | 旧项目 (检测到 77 个源码文件，580 个符号) |
+| 项目类型 | 旧项目 (检测到 27 个源码文件，249 个符号) |
 |---------|------|
-| **函数/变量风格** | snake_case (46.2%) |
+| **函数/变量风格** | camelCase (9.2%) |
 | **类名风格** | PascalCase |
-| **常见前缀** | validate_, _ |
+| **常见前缀** | 无特殊前缀 |
 
 ## 命名约定
 
--   **函数/变量**: 使用 snake_case，示例: `get_task`, `session_manager`
+-   **函数/变量**: 使用 camelCase，示例: `getTask`, `sessionManager`
 -   **类名**: 使用 PascalCase，示例: `TaskContext`, `SessionManager`
 -   **禁止模糊修改**: 修改前必须用 code_search 确认目标唯一性。
 
 ## 代码示例 (从项目中提取)
 
-convert, handle_console_message, init, main, DetectProjectRoot, ValidateProjectPath, create_validation_image, GetDBForProject, NewDatabaseManager, init
+GetWikiStyleTemplate, MergeWikiStyleTemplate, URIToPath, init, main, TestMemoryLayer_AddMemos, RegisterMemoryTools, wrapMemo, fallback, SaveTaskChain
 
 ---
 

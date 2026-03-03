@@ -32,16 +32,16 @@ type HookReleaseArgs struct {
 
 // TaskChainArgs 任务链参数
 type TaskChainArgs struct {
-	Mode        string                   `json:"mode" jsonschema:"required,enum=init,enum=resume,enum=start,enum=complete,enum=spawn,enum=complete_sub,enum=finish,enum=status,enum=protocol,description=操作模式"`
-	TaskID      string                   `json:"task_id" jsonschema:"required,description=任务ID"`
-	Description string                   `json:"description" jsonschema:"description=任务描述 (init模式)"`
-	Protocol    string                   `json:"protocol" jsonschema:"description=协议名称 (init模式，如 develop/debug/refactor，不传则默认 linear)"`
-	PhaseID     string                   `json:"phase_id" jsonschema:"description=阶段ID (start/complete/spawn/complete_sub模式)"`
-	Result      string                   `json:"result" jsonschema:"description=gate结果 pass/fail (complete gate模式) 或子任务结果 (complete_sub模式)"`
-	Summary     string                   `json:"summary" jsonschema:"description=步骤/阶段/子任务总结 (complete/complete_sub模式)"`
-	SubID       string                   `json:"sub_id" jsonschema:"description=子任务ID (complete_sub模式)"`
-	SubTasks    interface{}              `json:"sub_tasks" jsonschema:"description=子任务列表 (spawn模式)"`
-	Phases      interface{}              `json:"phases" jsonschema:"description=手动定义阶段列表 (init模式)"`
+	Mode        string      `json:"mode" jsonschema:"required,enum=init,enum=resume,enum=start,enum=complete,enum=spawn,enum=complete_sub,enum=finish,enum=status,enum=protocol,description=操作模式"`
+	TaskID      string      `json:"task_id" jsonschema:"required,description=任务ID"`
+	Description string      `json:"description" jsonschema:"description=任务描述 (init模式)"`
+	Protocol    string      `json:"protocol" jsonschema:"description=协议名称 (init模式，如 develop/debug/refactor，不传则默认 linear)"`
+	PhaseID     string      `json:"phase_id" jsonschema:"description=阶段ID (start/complete/spawn/complete_sub模式)"`
+	Result      string      `json:"result" jsonschema:"description=gate结果 pass/fail (complete gate模式) 或子任务结果 (complete_sub模式)"`
+	Summary     string      `json:"summary" jsonschema:"description=步骤/阶段/子任务总结 (complete/complete_sub模式)"`
+	SubID       string      `json:"sub_id" jsonschema:"description=子任务ID (complete_sub模式)"`
+	SubTasks    interface{} `json:"sub_tasks" jsonschema:"description=子任务列表 (spawn模式)"`
+	Phases      interface{} `json:"phases" jsonschema:"description=手动定义阶段列表 (init模式)"`
 }
 
 // RegisterTaskTools 注册任务管理工具
@@ -70,7 +70,7 @@ func RegisterTaskTools(s *server.MCPServer, sm *SessionManager) {
     过期时间（小时），0 表示永不过期。
 
 说明：
-  - 挂起的钩子会被 manager_analyze 自动发现并提示。
+  - 挂起的钩子可通过 manager_list_hooks 主动检索。
 
 示例：
   manager_create_hook(description="等待用户提供 API 密钥", priority="high")

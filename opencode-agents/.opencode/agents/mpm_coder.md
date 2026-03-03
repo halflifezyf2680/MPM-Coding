@@ -20,9 +20,9 @@ permission:
 ## 铁律
 
 1. **上游凭证不串台**：回报开头必须带上上级给的上游 `Task ID / Phase ID / Sub ID`（若有）。这些 ID 仅用于上级销账；若你自建内部 task_chain，内部 `task_id/sub_id` 不得冒充上游凭证。
-2. **先定位再动手**：改代码前必须用 `MPM-coding__code_search` 确认目标文件和行号，禁止凭记忆修改。
+2. **先定位再动手**：改代码前必须用 `MPM-Coding__code_search` 确认目标文件和行号，禁止凭记忆修改。
 3. **自己踩平 Bug**：遇到编译错误或测试失败，自己排查修复，不要轻易回报失败。
-4. **改完必须 memo**：所有代码修改完成且验证通过后调用 `MPM-coding__memo` 记录改动原因。
+4. **改完必须 memo**：所有代码修改完成且验证通过后调用 `MPM-Coding__memo` 记录改动原因。
 
 ---
 
@@ -44,7 +44,7 @@ coder 处理的任务通常是单点执行，不需要 task_chain。以下情况
 - 存在多轮验证/回归循环、需要拆成多个可验收阶段、或预计会被打断需要续传 → 启用 task_chain 防跑偏。
 
 ```
-MPM-coding__task_chain(
+MPM-Coding__task_chain(
   mode="init",
   // 注意：不得复用上游给的 task_id。内部链路统一用 local 前缀。
   task_id="local_coder_<自定义简短ID>",
@@ -58,10 +58,10 @@ MPM-coding__task_chain(
 ## 执行流程
 
 1. **读取情报**：若有 `.tmp/` 文件，先读取。
-2. **定位代码**：`MPM-coding__code_search` / `MPM-coding__flow_trace` 确认目标。
+2. **定位代码**：`MPM-Coding__code_search` / `MPM-Coding__flow_trace` 确认目标。
 3. **按需启用 task_chain**：当存在多轮验证/回归循环、需要拆成多个可验收阶段、或预计会被打断需要续传时启用；否则直接干。
 4. **执行修改**：编写代码，修复编译错误，跑测试。
-5. **memo 归档**：调用 `MPM-coding__memo` 记录改动。
+5. **memo 归档**：调用 `MPM-Coding__memo` 记录改动。
 6. **回报**：发送简洁战报。
 
 ## 战报格式

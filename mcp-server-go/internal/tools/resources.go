@@ -9,7 +9,7 @@ from datetime import datetime
 import pathlib
 
 # 配置
-DB_PATH = ".mcp-data/mcp_memory.db"
+DB_PATH = ".mpm-data/mcp_memory.db"
 OUTPUT_FILE = "project_timeline.html"
 
 HTML_TEMPLATE = """

@@ -35,7 +35,7 @@ type index_build_status struct {
 }
 
 func indexStatusFile(projectRoot string) string {
-	return filepath.Join(projectRoot, ".mcp-data", "index_status.json")
+	return filepath.Join(projectRoot, core.DataDirName, "index_status.json")
 }
 
 func writeIndexStatus(projectRoot string, st index_build_status) {
@@ -111,7 +111,7 @@ type SessionManager struct {
 	Memory        *core.MemoryLayer
 	ProjectRoot   string
 	TaskChainsV3  map[string]*TaskChainV3   // 协议状态机任务链
-	AnalysisState map[string]*AnalysisState // manager_analyze 两步调用的中间状态
+	AnalysisState map[string]*AnalysisState // 历史遗留的分析状态缓存（兼容保留）
 }
 
 // AnalysisState 第一步分析结果（临时存储）
@@ -283,14 +283,14 @@ func wrapInit(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerFun
 			return mcp.NewToolResultError(fmt.Sprintf("⛔ 敏感路径（系统或 IDE 目录），禁止在此初始化项目： %s", absRoot)), nil
 		}
 
-		// 3. 确保 .mcp-data 存在
-		mcpDataDir := filepath.Join(absRoot, ".mcp-data")
-		if err := os.MkdirAll(mcpDataDir, 0755); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("创建数据目录失败： %v", err)), nil
+		// 3. 确保数据目录存在（自动处理迁移）
+		dataDir, err := core.GetDataDir(absRoot)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("获取/创建数据目录失败： %v", err)), nil
 		}
 
 		// 4. 持久化项目配置
-		configPath := filepath.Join(mcpDataDir, "project_config.json")
+		configPath := filepath.Join(dataDir, core.ProjectConfigFile)
 		configContent := fmt.Sprintf(`{
   "project_root": "%s",
   "initialized_at": "%s"
@@ -350,7 +350,7 @@ func generateProjectRules(path string, analysis *services.NamingAnalysis) error 
 
 | 场景 | 必须使用的工具 |
 |------|---------------|
-| 刚接手陌生项目且无任何代码线索 / 上下文过多需收敛注意力 | ` + "`manager_analyze`" + ` (可选) |
+| 刚接手陌生项目且无任何代码线索 / 上下文过多需收敛注意力 | ` + "`project_map`" + ` / ` + "`flow_trace`" + ` |
 | 任务涉及多模块/多阶段修改，预计需要多轮对话才能完成 | ` + "`task_chain`" + ` (协议状态机) |
 | 刚接手项目 / 宏观探索 | ` + "`project_map`" + ` |
 | 理解业务逻辑主链 | ` + "`flow_trace`" + ` |
@@ -483,7 +483,7 @@ func wrapIndexStatus(sm *SessionManager) server.ToolHandlerFunc {
 			result["index_status_error"] = err.Error()
 		}
 
-		heartbeatPath := filepath.Join(absRoot, ".mcp-data", "heartbeat")
+		heartbeatPath := filepath.Join(absRoot, core.DataDirName, "heartbeat")
 		result["heartbeat_file"] = filepath.ToSlash(heartbeatPath)
 		if raw, err := os.ReadFile(heartbeatPath); err == nil {
 			var heartbeat map[string]interface{}
@@ -498,7 +498,7 @@ func wrapIndexStatus(sm *SessionManager) server.ToolHandlerFunc {
 
 		sizeMap := map[string]int64{}
 		for _, name := range []string{"symbols.db", "symbols.db-wal", "symbols.db-shm"} {
-			p := filepath.Join(absRoot, ".mcp-data", name)
+			p := filepath.Join(absRoot, core.DataDirName, name)
 			if st, err := os.Stat(p); err == nil {
 				sizeMap[name] = st.Size()
 			}

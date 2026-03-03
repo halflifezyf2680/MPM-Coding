@@ -84,7 +84,7 @@ func (m *MemoryLayer) GetTask(ctx context.Context, taskID string) (*Task, error)
 // ========== Memo Management ==========
 
 // memoArchiveEntry 用于持久化到 dev-log-archive 的备份条目
-// 设计目标：即使 .mcp-data/mcp_memory.db 丢失，也可以通过重放此日志恢复 memos 表的核心字段。
+// 设计目标：即使 .mpm-data/mcp_memory.db 丢失，也可以通过重放此日志恢复 memos 表的核心字段。
 type memoArchiveEntry struct {
 	ID        int64     `json:"id"`
 	Category  string    `json:"category"`
@@ -331,7 +331,7 @@ func (m *MemoryLayer) SearchMemos(ctx context.Context, keywords string, category
 	args = append(args, limit)
 
 	// DEBUG: Log the final query and args
-	debugPath := filepath.Join(m.projectRoot, ".mcp-data", "recall_debug.log")
+	debugPath := filepath.Join(m.projectRoot, DataDirName, "recall_debug.log")
 	debugMsg := fmt.Sprintf("Query: %s\nArgs: %v\n", query, args)
 	_ = os.WriteFile(debugPath, []byte(debugMsg), 0644)
 

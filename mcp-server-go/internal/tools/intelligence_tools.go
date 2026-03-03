@@ -49,62 +49,11 @@ type MissionControl struct {
 
 // RegisterIntelligenceTools 注册智能分析工具
 func RegisterIntelligenceTools(s *server.MCPServer, sm *SessionManager, ai *services.ASTIndexer) {
-	s.AddTool(mcp.NewTool("manager_analyze",
-		mcp.WithDescription(`manager_analyze - 任务情报聚合与战术简报（两步自迭代）
-
-用途：
-  【必选】复杂任务启动入口。采用两步自迭代模式：
-
-  步骤1（step=1）：真实分析
-    - AST 搜索代码定位
-    - 加载历史经验
-    - 复杂度评估
-    - 生成约束规则
-    返回：分析结果 + task_id
-
-  步骤2（step=2）：动态策略
-    - 基于步骤1的真实分析结果
-    - 动态生成战术建议
-    - 返回：完整的 Mission Briefing（含 strategic_handoff）
-
-  ⚠️ 注意：此工具不具备自然语言理解能力。
-  你必须先运用逻辑能力，从用户指令中解析出「意图」和「关键符号」，填入参数。
-
-参数：
-  task_description (必填)
-    完整保留用户的原始指令。
-
-  intent (必填)
-    基于你的理解，明确指定任务类型：
-    - DEBUG: 错误排查
-    - DEVELOP: 新功能开发
-    - REFACTOR: 代码重构
-    - RESEARCH: 技术调研
-
-  symbols (必填)
-    基于你的分析，提取指令中涉及的核心函数名、类名或文件名。
-    (工具将仅据此列表锁定代码物理位置，漏填将导致上下文丢失)
-
-  step (可选，默认=1)
-    执行步骤：1=分析，2=生成策略
-
-  task_id (步骤2时必填)
-    步骤1返回的 task_id，用于获取上一步的分析结果。
-
-返回：
-  步骤1：分析结果 + task_id
-  步骤2：完整的 Mission Briefing JSON
-
-触发词：
-  "mpm 分析", "mpm 任务", "mpm mg", "mpm analyze"`),
-		mcp.WithInputSchema[AnalyzeArgs](),
-	), wrapAnalyze(sm, ai))
-
 	s.AddTool(mcp.NewTool("known_facts",
 		mcp.WithDescription(`known_facts - 原子级经验事实存档
 
 用途：
-  将经过验证的代码规则、铁律或重要的避坑经验存入记忆层。这些事实会被 manager_analyze 自动加载，以防止在未来的任务中犯同样的错误。
+	  将经过验证的代码规则、铁律或重要的避坑经验存入记忆层，用于后续检索与复用。
 
 参数：
   type (必填)
@@ -168,7 +117,7 @@ func handleAnalyzeStep1(ctx context.Context, sm *SessionManager, ai *services.AS
 	// 1. 意图识别
 	intent := determineIntent(args.TaskDescription, args.Intent, args.ReadOnly)
 
-	// 1.1 索引预热（避免 manager_analyze 使用过期索引）
+	// 1.1 索引预热（避免使用过期索引）
 	if strings.TrimSpace(args.Scope) != "" {
 		_, _ = ai.IndexScope(sm.ProjectRoot, args.Scope)
 	} else {
@@ -272,7 +221,7 @@ func handleAnalyzeStep1(ctx context.Context, sm *SessionManager, ai *services.AS
 		"telemetry":       telemetry,
 		"guardrails":      guardrails,
 		"alerts":          alerts,
-		"next_step":       "调用 manager_analyze(step=2, task_id=\"" + taskID + "\") 生成战术策略",
+		"next_step":       "调用 step=2 并携带 task_id 生成战术策略",
 	}
 
 	jsonData, err := json.MarshalIndent(step1Result, "", "  ")
@@ -288,7 +237,7 @@ func handleAnalyzeStep2(sm *SessionManager, ai *services.ASTIndexer, args Analyz
 	// 1. 从 Session 读取第一步的状态
 	state, exists := sm.AnalysisState[taskID]
 	if !exists {
-		return mcp.NewToolResultError("⚠️ 未找到第一步的分析结果，请先调用 manager_analyze(step=1)"), nil
+		return mcp.NewToolResultError("⚠️ 未找到第一步的分析结果，请先执行 step=1"), nil
 	}
 
 	// 2. 基于第一步结果动态生成 strategic_handoff

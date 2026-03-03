@@ -70,7 +70,7 @@ func TestDetectTechStackAndConfig_GoDoesNotIgnorePkgDir(t *testing.T) {
 }
 
 func TestBuildIndexArgs_DefaultDoesNotPassExtensions(t *testing.T) {
-	args := buildIndexArgs("D:/repo", "D:/repo/.mcp-data/symbols.db", "D:/repo/.mcp-data/.ast_result_index.json", "node_modules,.git", "go,py", "", false, false)
+	args := buildIndexArgs("D:/repo", "D:/repo/.mpm-data/symbols.db", "D:/repo/.mpm-data/.ast_result_index.json", "node_modules,.git", "go,py", "", false, false)
 
 	if hasArg(args, "--extensions") {
 		t.Fatalf("default args should not include --extensions, got %v", args)
@@ -81,7 +81,7 @@ func TestBuildIndexArgs_DefaultDoesNotPassExtensions(t *testing.T) {
 }
 
 func TestBuildIndexArgs_RetryCanPassExtensions(t *testing.T) {
-	args := buildIndexArgs("D:/repo", "D:/repo/.mcp-data/symbols.db", "D:/repo/.mcp-data/.ast_result_index.json", "node_modules,.git", "go,py", "", true, false)
+	args := buildIndexArgs("D:/repo", "D:/repo/.mpm-data/symbols.db", "D:/repo/.mpm-data/.ast_result_index.json", "node_modules,.git", "go,py", "", true, false)
 
 	if !hasArg(args, "--extensions") {
 		t.Fatalf("retry args should include --extensions, got %v", args)
@@ -92,7 +92,7 @@ func TestBuildIndexArgs_RetryCanPassExtensions(t *testing.T) {
 }
 
 func TestBuildIndexArgs_ForceFullAddsFlag(t *testing.T) {
-	args := buildIndexArgs("D:/repo", "D:/repo/.mcp-data/symbols.db", "D:/repo/.mcp-data/.ast_result_index.json", "node_modules,.git", "go,py", "", false, true)
+	args := buildIndexArgs("D:/repo", "D:/repo/.mpm-data/symbols.db", "D:/repo/.mpm-data/.ast_result_index.json", "node_modules,.git", "go,py", "", false, true)
 
 	if !hasArg(args, "--force-full") {
 		t.Fatalf("expected --force-full in args, got %v", args)

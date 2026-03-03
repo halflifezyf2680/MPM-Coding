@@ -12,6 +12,7 @@ bin/
 *.swo
 
 # MPM Data (本地数据库，不提交)
+.mpm-data/
 .mcp-data/
 
 # Rust
@@ -43,6 +44,7 @@ mcp-server-go/_MPM_PROJECT_RULES.md
 
 # Local-only docs (do not publish)
 docs/TASK_CHAIN_V3_FLOW.md
+PROJECT_EVALUATION_REPORT*.md
 
 # Dev logs (do not commit)
 dev-log.md

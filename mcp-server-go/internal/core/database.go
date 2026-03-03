@@ -41,7 +41,13 @@ func GetDBForProject(projectRoot string) (*DatabaseManager, error) {
 		return nil, fmt.Errorf("invalid project path: %s", absRoot)
 	}
 
-	dbPath := filepath.Join(absRoot, ".mcp-data", "mcp_memory.db")
+	// 使用 GetDataDir 获取数据目录（自动处理迁移）
+	dataDir, err := GetDataDir(absRoot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get data directory: %w", err)
+	}
+
+	dbPath := filepath.Join(dataDir, "mcp_memory.db")
 	mgr := &DatabaseManager{
 		dbPath: dbPath,
 	}

@@ -1,99 +1,151 @@
-# MPM - Vibe Coding MCP
+# MPM-Coding MCP
 
-> **把 AI 编程从“过程演示”变成“工程交付”**
+> **Turning AI Coding from "Demos" into "Delivery"**
 
-中文 | [English](README_EN.md)
+English | [中文](README_ZH.md)
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Go](https://img.shields.io/badge/Go-1.21+-00ADD8.svg) ![MCP](https://img.shields.io/badge/MCP-v1.0-FF4F5E.svg)
 
 ---
 
-## 行业现状
+## Industry Status
 
-AI 编程工具的普及降低了编程门槛，但也暴露了一些问题：许多项目在演示阶段表现亮眼，但在生产落地时缺乏对以下工程问题的系统性考虑：
+The rise of AI coding tools has lowered the programming barrier, but also exposed some issues: many projects perform well in demos, yet lack systematic consideration for the following engineering concerns in production:
 
-- **复现性**：能否稳定复现执行结果？
-- **容错恢复**：失败后能否断点续传？
-- **权限边界**：默认权限是否足够小？能否防止越权？
-- **验收审计**：有明确的验收标准吗？操作可追溯吗？
-- **自迭代**：状态如何推进？方法是什么？
+- **Reproducibility**: Can execution results be reliably reproduced?
+- **Fault Recovery**: Can execution resume from checkpoints after failure?
+- **Permission Boundaries**: Are default permissions restrictive enough? Can privilege escalation be prevented?
+- **Acceptance & Audit**: Are there clear acceptance criteria? Are operations traceable?
+- **Self-Iteration**: How does state progress? What's the method?
 
-当前 AI 编程实践中常见的现象：
-- 依赖自然语言描述的工作流和 agent 模板，约束力不足
-- LLM 生成的文档看似专业，但难以形成可验证的体系
-- 使用者难以判断 LLM 生成内容的可靠性
+Common patterns in current AI coding practice:
+- Relying on natural-language workflows and agent templates with insufficient enforcement
+- LLM-generated documentation that appears professional but fails to form a verifiable system
+- Users struggle to assess the reliability of LLM-generated content
 
-**核心观点**：LLM 工程化落地不靠堆 prompt 或多 agent 协同，而是需要**程序化框架**——信息清洗、状态外置、流程状态机、验证前置、工具边界明确、记忆固化与灵活提取。
+**Core Insight**: LLM engineering isn't about stacking prompts or multi-agent orchestration—it requires a **programmatic framework**: information cleaning, externalized state, workflow state machines, pre-verification, clear tool boundaries, and solidified + retrievable memory.
 
-交付能力的上限是工具框架决定的，LLM 是驱动方式。
-
-## MPM 是什么
-
-MPM 是一个 **MCP 工程化层**，让 AI 编程从"聊天"升级为"可控交付流程"。
-你可以在几乎无认知负担的情况下直接开始使用：初始化后将 `_MPM_PROJECT_RULES.md` 应用为系统 `Rules` 即可。
-
-### 🚀 30秒上手（先做这一步）
-
-```text
-1) initialize_project
-2) 把 _MPM_PROJECT_RULES.md 贴到客户端系统规则
-3) 直接提任务："帮我修复 XXX，并按规则执行"
-```
-
-这一步做对后，不需要先完整学习所有工具。
-
-**核心差异**：
-
-| 传统方式 | MPM 方式 |
-|---------|---------|
-| `grep "Login"` → 500 条结果 | `code_search("Login")` → 精确到文件:行号 |
-| "我觉得这里改了就行" | `code_impact` → 完整调用链分析 |
-| 每次对话从零开始 | `system_recall` → 跨会话记忆召回 |
-| AI 自由发挥 | `manager_analyze` → 结构化任务规划 |
+The tooling framework determines the upper bound of delivery capability. LLM is the driver.
 
 ---
 
-## 核心卖点
+## What is MPM?
 
-### 1. AST 精确定位，不是文本搜索
+MPM is an **MCP engineering layer** that upgrades AI coding from "chatting" to "controlled delivery workflow".
+You can start with almost zero cognitive overhead: initialize first, then apply `_MPM_PROJECT_RULES.md` as your system rules.
+
+### 🚀 30-Second Start (Do This First)
 
 ```text
-你：搜索 Login 函数
-AI：找到 func:src/auth/login.go::Login (L45-67)
-    签名: func Login(ctx context.Context, cred Credentials) (*Token, error)
-    调用者: 3 个直接调用，12 个间接调用
+1) initialize_project
+2) Paste _MPM_PROJECT_RULES.md into client system rules
+3) Ask directly: "Help me fix XXX and follow the rules"
 ```
 
-**背后技术**：Rust AST 引擎 + `canonical_id` 消除同名歧义
+If you do this first, you can start effectively without learning every tool in advance.
 
-### 2. 完整调用链追踪
+**Core Differentiators**:
+
+| Traditional Approach | MPM Approach |
+|---------------------|--------------|
+| `grep "Login"` → 500 results | `code_search("Login")` → exact file:line |
+| "I think this change should work" | `code_impact` → full call chain analysis |
+| Starting from scratch every session | `system_recall` → cross-session memory |
+| AI improvises freely | `task_chain` → structured task execution |
+
+### Practical Workflow: One Complete Loop (Example)
+
+Below is a copy-paste ready example. Paste it into any MCP client to run.
+
+#### Standard Mode (Recommended for Beginners)
 
 ```text
-你：分析修改 SessionManager 的影响
-AI：CODE_IMPACT_REPORT
-    风险等级: HIGH
-    直接影响: 4 个函数
-    间接影响: 23 个函数（3层调用链）
+Read _MPM_PROJECT_RULES.md and follow it.
+
+Task: Fix the Login callback idempotency issue.
+Requirements:
+1. Locate the code first
+2. Analyze impact scope
+3. Implement the fix
+4. Record the change reason
+```
+
+The AI will automatically execute: `initialize_project` → `code_search` → `code_impact` → modify code → `memo` to record.
+
+#### Strict Mode (With Explicit Gates)
+
+```text
+Read _MPM_PROJECT_RULES.md and follow it.
+
+Use task_chain to complete the following task:
+Task: Fix the Login callback idempotency issue.
+
+Phase requirements:
+1. Locate phase: Use code_search to find the target function
+2. Analyze phase: Use code_impact to evaluate impact scope
+3. Implement phase: Fix and pass tests
+4. Wrap-up phase: Use memo to record change reason
+
+Report results after each phase and wait for confirmation before proceeding.
+```
+
+#### Closed-Loop Checklist
+
+- **Understand**: `project_map` / `flow_trace` to grasp project structure
+- **Locate**: `code_search` to pinpoint symbols
+- **Assess**: `code_impact` to analyze call chain impact
+- **Change**: Write code, fix compilation errors
+- **Verify**: Run tests to confirm functionality
+- **Record**: `memo` to archive change rationale
+
+> ⚠️ **Data Hygiene**: The `.mpm-data/` directory stores local data and should not be committed to version control.
+>
+> **Project Binding**: `initialize_project` creates `.mpm-data/project_config.json` as an anchor. Future sessions auto-bind to this project root. If multiple anchors are found under a workspace aggregator folder, MPM refuses to guess and requires explicit `project_root`.
+
+---
+
+## Key Features
+
+### 1. AST-based Precision, Not Text Search
+
+```text
+You: Search for Login function
+AI: ### About Login
+    Best match: src/auth/login.go L45-67
+    ID: func:src/auth/login.go::Login
+    Signature: func Login(ctx context.Context, cred Credentials) (*Token, error)
+```
+
+**Powered by**: Rust AST engine + `canonical_id` for disambiguation
+
+### 2. Complete Call Chain Tracking
+
+```text
+You: Analyze impact of modifying SessionManager
+AI: CODE_IMPACT_REPORT
+    Risk Level: HIGH
+    Direct Impact: 4 functions
+    Indirect Impact: 23 functions (3-layer call chain)
     
-    修改清单:
+    Modification Checklist:
     ▶ [core/session.go:100-150] MODIFY_TARGET
     ▶ [api/handler.go:45-80] VERIFY_CALLER
     ▶ [service/auth.go:200-250] VERIFY_CALLER
 ```
 
-### 3. 跨会话记忆持久化
+### 3. Cross-Session Memory Persistence
 
 ```text
-你：上次为什么把 timeout 改成 30s？
-AI：(system_recall) 2024-01-15 的 memo：
-    "将 timeout 从 10s 改为 30s，因为阿里云 ECS 冷启动延迟"
+You: Why did we change timeout to 30s last time?
+AI: (system_recall) Memo from 2024-01-15:
+    "Changed timeout from 10s to 30s due to Alibaba Cloud ECS cold start delay"
 ```
 
 ---
 
-## 快速开始
+## Quick Start
 
-### 1. 编译
+### 1. Build
 
 ```powershell
 # Windows
@@ -103,58 +155,57 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
 ./scripts/build-unix.sh
 ```
 
-### 2. 配置 MCP
+### 2. Configure MCP
 
-指向编译产物：`mcp-server-go/bin/mpm-go(.exe)`
+Point to the build output: `mcp-server-go/bin/mpm-go(.exe)`
 
-### 3. 开始使用
+### 3. Start Using
 
 ```text
-初始化项目
-帮我分析修复 Login 回调幂等问题的方案
+Initialize project
+Help me analyze and fix the Login callback idempotency issue
 ```
 
-初始化后会自动生成 `_MPM_PROJECT_RULES.md`，这是项目的“操作说明书”：
+After initialization, MPM generates `_MPM_PROJECT_RULES.md` automatically. Treat it as the project's operating playbook:
 
-- 告诉 LLM 这个仓库的命名风格、工具使用顺序、硬规则
-- 让你不必先完整学习所有工具细节，也能直接进入可用状态
-- 新会话时优先让 LLM 先读取该文件，可明显降低误操作
+- It tells the LLM naming conventions, tool order, and hard constraints
+- You can start effectively without learning every tool detail first
+- In a new chat, ask the LLM to read this file first to reduce mistakes
 
-推荐首句：`先读取 _MPM_PROJECT_RULES.md 并按规则执行`
+Recommended first prompt: `Read _MPM_PROJECT_RULES.md and follow it`
 
-### 4. 发布打包（固定目录）
+### 4. Release Packaging (Fixed Directory)
 
 ```powershell
 python package_product.py
 ```
 
-说明：
+Notes:
 
-- 打包目录固定为 `mpm-release/MyProjectManager`
-- 每次执行会先清理旧的 `mpm-release` 后再重建
-
----
-
-## 工具速查表
-
-| 触发词 | 工具 | 用途 |
-|--------|------|------|
-| `mpm 初始化` | `initialize_project` | 项目绑定与 AST 索引（支持 `force_full_index`） |
-| `mpm 索引状态` | `index_status` | 查看后台索引进度/心跳/DB大小 |
-| `mpm 搜索` | `code_search` | AST 精确定位符号 |
-| `mpm 影响` | `code_impact` | 调用链影响分析 |
-| `mpm 地图` | `project_map` | 项目结构 + 热力图 |
-| `mpm 流程` | `flow_trace` | 业务流程追踪（入口/上游/下游） |
-| `mpm 分析` | `manager_analyze` | 任务情报简报 |
-| `mpm 任务链` | `task_chain` | 协议状态机驱动（linear/develop/debug/refactor），支持门控与子任务 |
-| `mpm 记录` | `memo` | 变更备忘录 |
-| `mpm 历史` | `system_recall` | 记忆召回 |
-| `mpm 人格` | `persona` | 切换 AI 人格 |
-| `mpm 时间线` | `open_timeline` | 项目演进可视化 |
+- Output directory is fixed: `mpm-release/MyProjectManager`
+- Each run removes previous `mpm-release` first, then rebuilds clean package contents
 
 ---
 
-## 架构
+## Tool Quick Reference
+
+| Trigger | Tool | Purpose |
+|---------|------|---------|
+| `mpm init` | `initialize_project` | Project binding & AST indexing (supports `force_full_index`) |
+| `mpm index status` | `index_status` | Check background indexing progress/heartbeat/DB size |
+| `mpm search` | `code_search` | AST-based symbol lookup |
+| `mpm impact` | `code_impact` | Call chain impact analysis |
+| `mpm map` | `project_map` | Project structure + heat map |
+| `mpm flow` | `flow_trace` | Business flow trace (entry/upstream/downstream) |
+| `mpm chain` | `task_chain` | Protocol state machine driven (linear/develop/debug/refactor), supporting gates & sub-tasks |
+| `mpm memo` | `memo` | Change documentation |
+| `mpm recall` | `system_recall` | Memory retrieval |
+| `mpm persona` | `persona` | Switch AI personality |
+| `mpm timeline` | `open_timeline` | Project evolution visualization |
+
+---
+
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -165,22 +216,22 @@ python package_product.py
 ┌─────────────────────────▼───────────────────────────────────┐
 │                     Go MCP Server                           │
 ├──────────────┬──────────────┬───────────────┬───────────────┤
-│   感知层      │    调度层     │    记忆层      │    增强层     │
+│  Perception  │  Scheduling  │    Memory     │   Enhancement │
 │ code_search  │ manager_     │ memo          │ persona       │
-│ code_impact  │ analyze      │ system_recall │ open_timeline │
+│ code_impact  │ hooks        │ system_recall │ open_timeline │
 │ project_map  │ task_chain   │ known_facts   │               │
 └──────────────┴──────────────┴───────────────┴───────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────────┐
 │                   Rust AST Indexer                          │
-│  • Tree-sitter 多语言解析 (Go/Python/JS/TS/Rust/Java/C++)   │
-│  • canonical_id 精确标识 (func:file.go::Name)               │
-│  • callee_id 精确调用链                                      │
-│  • DICE 复杂度算法                                           │
+│  • Tree-sitter multi-language parsing (Go/Python/JS/TS/...) │
+│  • canonical_id for precise identification                  │
+│  • callee_id for exact call chains                          │
+│  • DICE complexity algorithm                                │
 └─────────────────────────────────────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────────┐
-│                 SQLite 多库 (.mcp-data/*)                    │
+│                SQLite multi-db (.mpm-data/*)                │
 │  • symbols.db: canonical_id/scope_path/callee_id            │
 │  • mcp_memory.db: memos/tasks/known_facts                    │
 │  • arch-ast.db: revisions/nodes/edges/proposals/events       │
@@ -189,66 +240,66 @@ python package_product.py
 
 ---
 
-## AST 索引核心字段
+## AST Indexing Core Fields
 
-MPM 的 AST 引擎维护 **精确调用链**：
+MPM's AST engine maintains **precise call chains**:
 
-| 字段 | 示例 | 价值 |
-|------|------|------|
-| `canonical_id` | `func:core/session.go::GetSession` | 全局唯一，消除同名歧义 |
-| `scope_path` | `SessionManager::GetSession` | 层级作用域 |
-| `callee_id` | `func:core/db.go::Query` | 精确调用链（不是猜测） |
+| Field | Example | Value |
+|-------|---------|-------|
+| `canonical_id` | `func:core/session.go::GetSession` | Globally unique, no ambiguity |
+| `scope_path` | `SessionManager::GetSession` | Hierarchical scope |
+| `callee_id` | `func:core/db.go::Query` | Exact call chain (not guessing) |
 
-**结果**：`code_impact` 支持 **3 层 BFS 遍历**，完整展示影响传播路径。
-
----
-
-## 效能对比
-
-| 指标 | 无 MPM | 有 MPM |
-|------|--------|--------|
-| 符号定位 | 10+ 步搜索 | 1 步精确命中 |
-| 首步命中率 | 0% | 100% |
-| 影响评估 | 基于猜测 | AST 调用链 |
-| Token 消耗 | 4000+ | ~800 |
-| 认知恢复 | 每次从零 | 记忆召回 |
-
-详见 [MANUAL.md](./docs/MANUAL.md#效能对比)。
+**Result**: `code_impact` supports **3-layer BFS traversal**, showing complete impact propagation.
 
 ---
 
-## 文档
+## Performance Comparison
 
-- **[MANUAL.md](./docs/MANUAL.md)** - 完整手册（工具详解 + 最佳实践 + Case Study）
-- **[README_EN.md](./README_EN.md)** - English Version
-- **[MANUAL_EN.md](./docs/MANUAL_EN.md)** - English Manual
+| Metric | Without MPM | With MPM |
+|--------|-------------|----------|
+| Symbol location | 10+ search steps | 1 exact hit |
+| First-step accuracy | 0% | 100% |
+| Impact assessment | Based on guessing | AST call chain |
+| Token consumption | 4000+ | ~800 |
+| Context recovery | Start from zero | Memory recall |
 
----
-
-## 常见搜索问题
-
-- `如何在 MCP 中做代码影响分析？` → 用 `code_impact`
-- `如何让 LLM 看懂业务流程？` → 用 `flow_trace`
-- `大型仓库索引进度怎么看？` → 用 `index_status`
-- `如何强制全量索引？` → `initialize_project(force_full_index=true)`
-
-更多示例见 [MANUAL.md](./docs/MANUAL.md)。
+See [MANUAL.md](./docs/MANUAL.md#performance-comparison) for details.
 
 ---
 
-## OpenCode 多 Agent 模式
+## Documentation
 
-MPM 提供了 PM / Architect / Coder / Expert / Spider 五角色 Agent 包，可在 OpenCode 中直接使用。详见 [opencode-agents/README.md](./opencode-agents/README.md)。
-
----
-
-## 联系方式
-
-- 问题反馈：GitHub Issues
-- 邮箱：`halflifezyf2680@gmail.com`
+- **[MANUAL.md](./docs/MANUAL.md)** - Complete manual (tools + best practices + case studies)
+- **[README_ZH.md](./README_ZH.md)** - 中文版
+- **[MANUAL_ZH.md](./docs/MANUAL_ZH.md)** - 中文版手册
 
 ---
 
-## 许可证
+## Common Search Questions
+
+- `How to do impact analysis in MCP?` -> use `code_impact`
+- `How to make LLM understand business logic flow?` -> use `flow_trace`
+- `How to monitor indexing progress for large repositories?` -> use `index_status`
+- `How to force full indexing?` -> `initialize_project(force_full_index=true)`
+
+See [MANUAL.md](./docs/MANUAL.md) for detailed examples.
+
+---
+
+## OpenCode Multi-Agent Mode
+
+MPM provides a 5-role Agent pack (PM / Architect / Coder / Expert / Spider) for direct use in OpenCode. See [opencode-agents/README.md](./opencode-agents/README.md).
+
+---
+
+## Contact
+
+- Support: GitHub Issues
+- Email: `halflifezyf2680@gmail.com`
+
+---
+
+## License
 
 MIT License
