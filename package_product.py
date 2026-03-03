@@ -31,9 +31,8 @@ def package_mpm():
     print(f"📂 目标路径: {dist}")
 
     # 定义需要包含的核心文件夹
-    # 注意: mcp-server-go 包含完整的服务代码 (含 skills 目录)
     core_dirs = [
-        "mcp-server-go",  # 当前核心服务 (包含 skills/)
+        "mcp-server-go",  # 当前核心服务
         "docs",  # 图片和额外文档
     ]
 

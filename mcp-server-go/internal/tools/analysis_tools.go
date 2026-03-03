@@ -281,41 +281,33 @@ func detectSideEffects(node *services.Node, related []services.CallerInfo) []str
 	if node == nil {
 		return nil
 	}
-	bags := []string{node.Name, node.QualifiedName, node.FilePath}
-	for _, c := range related {
-		bags = append(bags, c.Node.Name, c.Node.QualifiedName, c.Node.FilePath)
-	}
-	joined := strings.ToLower(strings.Join(bags, " "))
 
-	tokenSet := make(map[string]bool)
-	for _, t := range strings.FieldsFunc(joined, func(r rune) bool {
-		isLower := r >= 'a' && r <= 'z'
-		isDigit := r >= '0' && r <= '9'
-		return !(isLower || isDigit)
-	}) {
-		if t != "" {
-			tokenSet[t] = true
+	// ========== 333（证据优先）：Phase 1 - 收集调用证据 ==========
+	callEvidence := make(map[string]bool)
+	normalizeCall := func(callee string) string {
+		// 规整化：转小写、去前缀路径（取最后一部分）
+		parts := strings.FieldsFunc(strings.ToLower(callee), func(r rune) bool {
+			return r == '.' || r == '/' || r == ':'
+		})
+		if len(parts) > 0 {
+			return parts[len(parts)-1]
+		}
+		return strings.ToLower(callee)
+	}
+
+	// 从 node.Calls 收集
+	for _, callee := range node.Calls {
+		callEvidence[normalizeCall(callee)] = true
+	}
+	// 从 related 节点的 Calls 收集
+	for _, r := range related {
+		for _, callee := range r.Node.Calls {
+			callEvidence[normalizeCall(callee)] = true
 		}
 	}
 
-	hasToken := func(words ...string) bool {
-		for _, w := range words {
-			if tokenSet[w] {
-				return true
-			}
-		}
-		return false
-	}
-	containsAny := func(words ...string) bool {
-		for _, w := range words {
-			if strings.Contains(joined, w) {
-				return true
-			}
-		}
-		return false
-	}
-
-	scores := map[string]int{
+	// ========== Phase 2 - 证据匹配（优先级高于启发式）==========
+	evidenceScores := map[string]int{
 		"filesystem": 0,
 		"database":   0,
 		"network":    0,
@@ -323,63 +315,82 @@ func detectSideEffects(node *services.Node, related []services.CallerInfo) []str
 		"state":      0,
 	}
 
-	// filesystem
-	if hasToken("file", "path", "read", "write", "mkdir", "open", "close", "stat") {
-		scores["filesystem"] += 2
-	}
-	if containsAny("filepath", "rename", "remove", "copy") {
-		scores["filesystem"] += 1
+	// 证据匹配规则（强信号，得分高）
+	for callee := range callEvidence {
+		// filesystem evidence
+		if strings.Contains(callee, "readfile") || strings.Contains(callee, "writefile") ||
+			strings.Contains(callee, "openfile") || strings.Contains(callee, "create") ||
+			strings.Contains(callee, "mkdir") || strings.Contains(callee, "remove") ||
+			strings.Contains(callee, "rename") || strings.Contains(callee, "stat") ||
+			strings.Contains(callee, "chmod") || strings.Contains(callee, "chown") ||
+			strings.Contains(callee, "os.open") || strings.Contains(callee, "ioutil") {
+			evidenceScores["filesystem"] += 10
+		}
+
+		// database evidence（注意避免 process 的 Exec）
+		if strings.Contains(callee, "query") || strings.Contains(callee, "begin") ||
+			strings.Contains(callee, "commit") || strings.Contains(callee, "rollback") ||
+			strings.Contains(callee, "insert") || strings.Contains(callee, "sqltransaction") ||
+			strings.Contains(callee, "db.exec") || strings.Contains(callee, "db.query") ||
+			strings.Contains(callee, "stmt.exec") || strings.Contains(callee, "stmt.query") {
+			evidenceScores["database"] += 10
+		}
+
+		// network evidence
+		if strings.Contains(callee, "listen") || strings.Contains(callee, "dial") ||
+			strings.Contains(callee, "serve") || strings.Contains(callee, "request") ||
+			strings.Contains(callee, "response") || strings.Contains(callee, "http") ||
+			strings.Contains(callee, "grpc") || strings.Contains(callee, "websocket") ||
+			strings.Contains(callee, "connect") || strings.Contains(callee, "net.dial") {
+			evidenceScores["network"] += 10
+		}
+
+		// process evidence（避免与 DB 的 Exec 冲突，要求更强证据）
+		if strings.Contains(callee, "command") || strings.Contains(callee, "startprocess") ||
+			strings.Contains(callee, "spawn") || strings.Contains(callee, "fork") ||
+			strings.Contains(callee, "kill") || strings.Contains(callee, "wait") ||
+			strings.Contains(callee, "exec.command") || strings.Contains(callee, "os.exec") {
+			evidenceScores["process"] += 10
+		}
+
+		// state evidence（设更高阈值，避免泛化）
+		if strings.Contains(callee, "lock") || strings.Contains(callee, "unlock") ||
+			strings.Contains(callee, "mutex") || strings.Contains(callee, "atomic") ||
+			strings.Contains(callee, "cache") || strings.Contains(callee, "session") {
+			evidenceScores["state"] += 8
+		}
 	}
 
-	// database
-	if hasToken("db", "sql", "sqlite", "insert", "update", "delete", "commit", "transaction") {
-		scores["database"] += 2
-	}
-	if hasToken("query", "exec", "row", "rows") {
-		scores["database"] += 1
-	}
-
-	// network (stricter to reduce false positives)
-	if hasToken("http", "https", "grpc", "tcp", "udp", "socket", "request", "response", "listen", "dial") {
-		scores["network"] += 2
-	}
-	if containsAny("websocket", "endpoint", "url", "api") {
-		scores["network"] += 1
+	// 检查是否有证据命中
+	hasEvidence := false
+	for _, score := range evidenceScores {
+		if score >= 10 {
+			hasEvidence = true
+			break
+		}
 	}
 
-	// process
-	if hasToken("exec", "command", "spawn", "process", "fork", "subprocess") {
-		scores["process"] += 2
-	}
-	if hasToken("run", "cmd") {
-		scores["process"] += 1
-	}
-
-	// state
-	if hasToken("state", "cache", "memory", "session", "lock", "mutex", "atomic") {
-		scores["state"] += 2
-	}
-	if hasToken("context") {
-		scores["state"] += 1
+	// ========== Phase 3 - 返回结果（仅 evidence，奥卡姆剃刀：无证据则返回空）==========
+	if !hasEvidence {
+		return nil
 	}
 
 	types := make([]string, 0, 5)
-	if scores["filesystem"] >= 2 {
-		types = append(types, "filesystem")
+	if evidenceScores["filesystem"] >= 10 {
+		types = append(types, "filesystem[evidence]")
 	}
-	if scores["database"] >= 2 {
-		types = append(types, "database")
+	if evidenceScores["database"] >= 10 {
+		types = append(types, "database[evidence]")
 	}
-	if scores["network"] >= 3 {
-		types = append(types, "network")
+	if evidenceScores["network"] >= 10 {
+		types = append(types, "network[evidence]")
 	}
-	if scores["process"] >= 2 {
-		types = append(types, "process")
+	if evidenceScores["process"] >= 10 {
+		types = append(types, "process[evidence]")
 	}
-	if scores["state"] >= 2 {
-		types = append(types, "state")
+	if evidenceScores["state"] >= 10 {
+		types = append(types, "state[evidence]")
 	}
-
 	return mergeUniqueStrings(types)
 }
 

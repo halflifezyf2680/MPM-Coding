@@ -53,7 +53,7 @@
 
 ## 代码示例 (从项目中提取)
 
-reproduce_issue, main, create_validation_image, init, main, convert, initializeSeed, setup, draw, hexToRgb
+convert, handle_console_message, init, main, DetectProjectRoot, ValidateProjectPath, create_validation_image, GetDBForProject, NewDatabaseManager, init
 
 ---
 

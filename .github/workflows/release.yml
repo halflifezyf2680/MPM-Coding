@@ -31,11 +31,11 @@ jobs:
             ext: ''
           - os: darwin
             arch: amd64
-            runner: macos-latest
+            runner: macos-13
             ext: ''
           - os: darwin
             arch: arm64
-            runner: macos-latest
+            runner: macos-14
             ext: ''
 
     steps:
@@ -57,11 +57,16 @@ jobs:
 
       - name: Build Go server
         working-directory: mcp-server-go
+        shell: bash
         run: |
+          export GOOS='${{ matrix.os }}'
+          export GOARCH='${{ matrix.arch }}'
+          export CGO_ENABLED=0
           go build -o bin/mpm-go${{ matrix.ext }} ./cmd/server
 
       - name: Build Rust AST indexer
         working-directory: mcp-server-go/internal/services/ast_indexer_rust
+        shell: bash
         run: |
           cargo build --release
           cp target/release/ast_indexer_rust${{ matrix.ext }} ../../../bin/ast_indexer${{ matrix.ext }}
@@ -89,7 +94,7 @@ jobs:
             cd release && tar -czvf mpm-${{ matrix.os }}-${{ matrix.arch }}.tar.gz mpm-${{ matrix.os }}-${{ matrix.arch }}
           fi
 
-      - name: Upload artifact
+      - name: Upload artifact (release package)
         uses: actions/upload-artifact@v4
         with:
           name: mpm-${{ matrix.os }}-${{ matrix.arch }}
@@ -97,9 +102,162 @@ jobs:
             release/mpm-${{ matrix.os }}-${{ matrix.arch }}.zip
             release/mpm-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
 
+      - name: Upload artifact (binaries for mcpb)
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            mcp-server-go/bin/mpm-go${{ matrix.ext }}
+            mcp-server-go/bin/ast_indexer${{ matrix.ext }}
+          retention-days: 1
+
+  build-mcpb:
+    name: Build MCPB Bundle
+    needs: build
+    runs-on: macos-latest
+    outputs:
+      mcpb_sha256: ${{ steps.sha256.outputs.hash }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download all binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binaries-*
+          path: binaries
+          merge-multiple: false
+
+      - name: Assemble MCPB bundle
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION_NUM="${VERSION#v}"
+          export VERSION_NUM
+          
+          # Create mcpb directory structure
+          mkdir -p mcpb-bundle/server/linux
+          mkdir -p mcpb-bundle/server/darwin
+          mkdir -p mcpb-bundle/server/win32
+          
+          # Copy Linux binaries
+          if [ -d "binaries/binaries-linux-amd64" ]; then
+            cp binaries/binaries-linux-amd64/mpm-go mcpb-bundle/server/linux/
+            cp binaries/binaries-linux-amd64/ast_indexer mcpb-bundle/server/linux/
+            chmod +x mcpb-bundle/server/linux/*
+          fi
+          
+          # Build macOS universal binaries (amd64 + arm64)
+          if [ -d "binaries/binaries-darwin-amd64" ] && [ -d "binaries/binaries-darwin-arm64" ]; then
+            lipo -create \
+              -output mcpb-bundle/server/darwin/mpm-go \
+              binaries/binaries-darwin-amd64/mpm-go \
+              binaries/binaries-darwin-arm64/mpm-go
+
+            lipo -create \
+              -output mcpb-bundle/server/darwin/ast_indexer \
+              binaries/binaries-darwin-amd64/ast_indexer \
+              binaries/binaries-darwin-arm64/ast_indexer
+
+            chmod +x mcpb-bundle/server/darwin/*
+          fi
+          
+          # Copy Windows binaries
+          if [ -d "binaries/binaries-windows-amd64" ]; then
+            cp binaries/binaries-windows-amd64/mpm-go.exe mcpb-bundle/server/win32/
+            cp binaries/binaries-windows-amd64/ast_indexer.exe mcpb-bundle/server/win32/
+          fi
+          
+          # Generate manifest.json from template
+          python3 - << 'PY'
+          import json, os
+
+          version = os.environ.get('VERSION_NUM', '').strip() or '0.0.0'
+
+          with open('mcpb/manifest.json', 'r', encoding='utf-8') as f:
+              data = json.load(f)
+
+          data['version'] = version
+
+          with open('mcpb-bundle/manifest.json', 'w', encoding='utf-8') as f:
+              json.dump(data, f, indent=2)
+              f.write('\n')
+          PY
+          
+          # Create .mcpb file (zip format)
+          cd mcpb-bundle
+          zip -r ../mpm-vibe-coding-${VERSION}.mcpb .
+          cd ..
+          
+          echo "MCPB_FILE=mpm-vibe-coding-${VERSION}.mcpb" >> $GITHUB_ENV
+
+      - name: Calculate SHA256
+        id: sha256
+        run: |
+          HASH=$(shasum -a 256 "${{ env.MCPB_FILE }}" | cut -d' ' -f1)
+          echo "hash=${HASH}" >> $GITHUB_OUTPUT
+          echo "MCPB_SHA256=${HASH}" >> $GITHUB_ENV
+          echo "SHA256: ${HASH}"
+
+      - name: Generate server.json
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION_NUM="${VERSION#v}"
+          REPO_URL="${{ github.server_url }}/${{ github.repository }}"
+          DOWNLOAD_URL="${REPO_URL}/releases/download/${VERSION}/mpm-vibe-coding-${VERSION}.mcpb"
+          SERVER_NAME="${{ vars.MCP_SERVER_NAME }}"
+          if [ -z "${SERVER_NAME}" ]; then
+            SERVER_NAME="io.github.halflifezyf2680/mpm-vibe-coding"
+          fi
+          
+          cat > server.json << SERVERJSON_EOF
+          {
+            "\$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+            "name": "${SERVER_NAME}",
+            "title": "MPM",
+            "description": "Local MCP server for engineering workflows: AST-based code navigation, impact/flow analysis, task orchestration, and memo/recall memory.",
+            "version": "${VERSION_NUM}",
+            "packages": [
+              {
+                "registryType": "mcpb",
+                "identifier": "${DOWNLOAD_URL}",
+                "fileSha256": "${{ env.MCPB_SHA256 }}",
+                "transport": {
+                  "type": "stdio"
+                }
+              }
+            ],
+            "repository": {
+              "url": "${REPO_URL}",
+              "source": "github"
+            },
+            "websiteUrl": "${REPO_URL}"
+          }
+          SERVERJSON_EOF
+          
+          cat server.json
+
+      - name: Upload MCPB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcpb-bundle
+          path: |
+            ${{ env.MCPB_FILE }}
+            server.json
+          retention-days: 1
+
   release:
     name: Create Release
-    needs: build
+    needs: [build, build-mcpb]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -122,6 +280,17 @@ jobs:
             echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          # Copy platform packages
+          find artifacts -name "*.zip" -exec cp {} release-assets/ \;
+          find artifacts -name "*.tar.gz" -exec cp {} release-assets/ \;
+          # Copy mcpb bundle
+          cp artifacts/mcpb-bundle/*.mcpb release-assets/ || true
+          cp artifacts/mcpb-bundle/server.json release-assets/ || true
+          ls -la release-assets/
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -130,26 +299,26 @@ jobs:
           body: |
             ## MPM - Vibe Coding MCP
             
-            ### 下载说明
+            ### Downloads
             
-            | 平台 | 文件 |
+            | Platform | File |
             |------|------|
             | Windows x64 | `mpm-windows-amd64.zip` |
             | Linux x64 | `mpm-linux-amd64.tar.gz` |
             | macOS Intel | `mpm-darwin-amd64.tar.gz` |
             | macOS Apple Silicon | `mpm-darwin-arm64.tar.gz` |
+            | MCP Registry bundle | `mpm-vibe-coding-${{ steps.version.outputs.VERSION }}.mcpb` |
             
-            ### 使用方法
+            ### Usage
             
-            1. 下载对应平台的压缩包
-            2. 解压到任意目录
-            3. 在 MCP 客户端配置中指向 `mpm-go` 可执行文件
+            1. Download the package for your platform
+            2. Extract to any directory
+            3. Point your MCP client to the `mpm-go` executable
             
-            ### 🐛 重要修复
+            ### Registry metadata
             
-            - 修复 task_chain 信息截断处理与渲染的一个小问题。
+            This release also includes:
+            - `server.json` (MCP Registry metadata)
           draft: false
           prerelease: false
-          files: |
-            artifacts/**/*.zip
-            artifacts/**/*.tar.gz
+          files: release-assets/*

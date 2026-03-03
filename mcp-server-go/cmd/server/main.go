@@ -51,7 +51,6 @@ func main() {
 	tools.RegisterSearchTools(s, sm, ai)       // 项目地图与搜索
 	tools.RegisterIntelligenceTools(s, sm, ai) // 任务分析与事实存档
 	tools.RegisterAnalysisTools(s, sm, ai)     // 影响分析工具
-	tools.RegisterSkillTools(s, sm)            // 技能库工具
 	tools.RegisterTaskTools(s, sm)             // 任务管理工具
 	tools.RegisterEnhanceTools(s, sm)          // 增强工具 (persona)
 

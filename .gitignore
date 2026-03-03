@@ -43,3 +43,11 @@ mcp-server-go/_MPM_PROJECT_RULES.md
 
 # Local-only docs (do not publish)
 docs/TASK_CHAIN_V3_FLOW.md
+
+# Dev logs (do not commit)
+dev-log.md
+dev-log-archive/
+
+# Tool-generated files (do not commit)
+visualize_history.py
+mcp-server-go/internal/tools/analysis_tools_sideeffects_test.go

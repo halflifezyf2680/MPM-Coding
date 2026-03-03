@@ -412,14 +412,6 @@ Personality expression strength serves as a **signal** for context health:
 
 ---
 
-#### skill_load - Skill Loading
-
-**Triggers**: `mpm skill`
-
-**Purpose**: Load domain expert guides (e.g., Refactoring, Go-expert).
-
----
-
 #### open_timeline - Project Evolution
 
 **Triggers**: `mpm timeline`
@@ -645,7 +637,6 @@ complexity_score =
 | Todo | `mpm suspend` `mpm todolist` `mpm release` | Hook Series |
 | Memory | `mpm memo` `mpm recall` `mpm rule` | Memory Series |
 | Persona | `mpm persona` | `persona` |
-| Skill | `mpm skilllist` `mpm loadskill` | Skill Series |
 | Visual | `mpm timeline` | `open_timeline` |
 
 ---

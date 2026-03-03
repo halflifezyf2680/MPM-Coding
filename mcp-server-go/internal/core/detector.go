@@ -20,16 +20,42 @@ func DetectProjectRoot() string {
 		}
 	}
 
-	// 2. 其次选择当前工作目录 (CWD)
+	// 2. 其次选择当前工作目录 (CWD)，但必须通过项目根门槛检查
 	cwd, err := os.Getwd()
 	if err == nil {
 		abs, err := filepath.Abs(cwd)
-		if err == nil && ValidateProjectPath(abs) {
+		if err == nil && ValidateProjectPath(abs) && looksLikeProjectRoot(abs) {
 			return abs
 		}
 	}
 
 	return ""
+}
+
+// looksLikeProjectRoot 检查路径是否看起来像真正的项目根目录
+// 仅当存在项目标识文件时才返回 true，避免在 MCP server 安装目录等位置误判
+func looksLikeProjectRoot(path string) bool {
+	// 项目标识文件/目录清单
+	projectMarkers := []string{
+		".git",           // Git 项目
+		"go.mod",         // Go 项目
+		"package.json",   // Node.js 项目
+		"pyproject.toml", // Python 项目
+		"Cargo.toml",     // Rust 项目
+		"pom.xml",        // Java Maven 项目
+		"build.gradle",   // Java Gradle 项目
+		".svn",           // SVN 项目
+		".hg",            // Mercurial 项目
+	}
+
+	for _, marker := range projectMarkers {
+		markerPath := filepath.Join(path, marker)
+		if _, err := os.Stat(markerPath); err == nil {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ValidateProjectPath 验证路径是否安全且合法

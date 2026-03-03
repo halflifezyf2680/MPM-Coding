@@ -427,14 +427,6 @@ known_facts(type="避坑", summarize="修改 session 逻辑前必须先检查依
 
 ---
 
-#### skill_load - 技能加载
-
-**触发词**：`mpm 技能`
-
-**用途**：加载领域专家指南（如 Refactoring、Go-expert）。
-
----
-
 #### open_timeline - 项目演进
 
 **触发词**：`mpm 时间线`
@@ -659,7 +651,6 @@ complexity_score =
 | 待办 | `mpm 挂起` `mpm 待办列表` `mpm 释放` | Hook 系列 |
 | 记忆 | `mpm 记录` `mpm 历史` `mpm 铁律` | 记忆系列 |
 | 人格 | `mpm 人格` | `persona` |
-| 技能 | `mpm 技能列表` `mpm 加载技能` | 技能系列 |
 | 可视 | `mpm 时间线` | `open_timeline` |
 
 ---

@@ -152,7 +152,6 @@ Notes:
 | `mpm memo` | `memo` | Change documentation |
 | `mpm recall` | `system_recall` | Memory retrieval |
 | `mpm persona` | `persona` | Switch AI personality |
-| `mpm skill` | `skill_load` | Load domain expert guides |
 | `mpm timeline` | `open_timeline` | Project evolution visualization |
 
 ---
@@ -170,8 +169,8 @@ Notes:
 ├──────────────┬──────────────┬───────────────┬───────────────┤
 │  Perception  │  Scheduling  │    Memory     │   Enhancement │
 │ code_search  │ manager_     │ memo          │ persona       │
-│ code_impact  │ analyze      │ system_recall │ skill_load    │
-│ project_map  │ task_chain   │ known_facts   │ open_timeline │
+│ code_impact  │ analyze      │ system_recall │ open_timeline │
+│ project_map  │ task_chain   │ known_facts   │               │
 └──────────────┴──────────────┴───────────────┴───────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────────┐

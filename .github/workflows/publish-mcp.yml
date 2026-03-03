@@ -1,0 +1,85 @@
+name: Publish to MCP Registry
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., v1.0.0)'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to MCP Registry
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${{ github.event.release.tag_name }}"
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "VERSION_NUM=${VERSION#v}" >> $GITHUB_OUTPUT
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          
+          # Download server.json from release
+          gh release download "${VERSION}" \
+            --pattern "server.json" \
+            --dir ./publish
+          
+          # Download .mcpb for verification (optional)
+          gh release download "${VERSION}" \
+            --pattern "*.mcpb" \
+            --dir ./publish || echo "MCPB not found, continuing with server.json only"
+          
+          ls -la ./publish/
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+          chmod +x mcp-publisher
+          ./mcp-publisher --version || echo "mcp-publisher installed"
+
+      - name: Authenticate to MCP Registry (GitHub OIDC)
+        run: |
+          ./mcp-publisher login github-oidc
+
+      - name: Publish server to MCP Registry
+        run: |
+          # mcp-publisher expects server.json in the current directory
+          cd ./publish
+          ../mcp-publisher publish
+
+      - name: Verify publication
+        run: |
+          SERVER_NAME="${{ vars.MCP_SERVER_NAME }}"
+          if [ -z "${SERVER_NAME}" ]; then
+            SERVER_NAME="io.github.halflifezyf2680/mpm-vibe-coding"
+          fi
+          
+          echo "Waiting for registry to process..."
+          sleep 10
+          
+          # Query the registry API
+          curl -s "https://registry.modelcontextprotocol.io/v0.1/servers?search=${SERVER_NAME}" | head -100 || echo "Registry query completed"
+          
+          echo ""
+          echo "Publication attempt completed."
+          echo "Verify via API: https://registry.modelcontextprotocol.io/v0.1/servers?search=${SERVER_NAME}"

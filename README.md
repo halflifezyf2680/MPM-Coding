@@ -150,7 +150,6 @@ python package_product.py
 | `mpm 记录` | `memo` | 变更备忘录 |
 | `mpm 历史` | `system_recall` | 记忆召回 |
 | `mpm 人格` | `persona` | 切换 AI 人格 |
-| `mpm 技能` | `skill_load` | 加载领域专家指南 |
 | `mpm 时间线` | `open_timeline` | 项目演进可视化 |
 
 ---
@@ -168,8 +167,8 @@ python package_product.py
 ├──────────────┬──────────────┬───────────────┬───────────────┤
 │   感知层      │    调度层     │    记忆层      │    增强层     │
 │ code_search  │ manager_     │ memo          │ persona       │
-│ code_impact  │ analyze      │ system_recall │ skill_load    │
-│ project_map  │ task_chain   │ known_facts   │ open_timeline │
+│ code_impact  │ analyze      │ system_recall │ open_timeline │
+│ project_map  │ task_chain   │ known_facts   │               │
 └──────────────┴──────────────┴───────────────┴───────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────────┐
