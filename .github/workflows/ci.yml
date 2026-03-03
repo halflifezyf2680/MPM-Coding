@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  GO_VERSION: '1.21'
+
+jobs:
+  test-go:
+    name: Go Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: mcp-server-go/go.sum
+
+      - name: Run tests
+        working-directory: mcp-server-go
+        run: go test ./... -v
+
+      - name: Build
+        working-directory: mcp-server-go
+        run: go build ./...
+
+  test-rust:
+    name: Rust Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mcp-server-go/internal/services/ast_indexer_rust
+
+      - name: Run tests
+        working-directory: mcp-server-go/internal/services/ast_indexer_rust
+        run: cargo test
+
+      - name: Build
+        working-directory: mcp-server-go/internal/services/ast_indexer_rust
+        run: cargo build --release
