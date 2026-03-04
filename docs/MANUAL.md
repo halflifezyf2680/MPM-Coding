@@ -30,12 +30,16 @@ In practice, it maps to these core concepts:
 
 | Core Concept | One-line Meaning | Main Tools | Practical Result |
 |------------|---------|--------------|------------------|
-| **Project anchoring** | Bind session to the correct project root first | `initialize_project` | Avoid indexing/writing in wrong directories |
+| **Project anchoring** | Bind session to the correct project root first | `initialize_project` | Ensure indexes/memory land in the right directory (some MCP clients do not guarantee the server CWD is the project root) |
 | **Locate before edit** | Find real entry points and symbols before changing code | `project_map` / `flow_trace` / `code_search` | Less random file-hopping |
 | **Impact before change** | See caller/callee impact before editing functions | `code_impact` | Fewer surprise breakages |
 | **Task state machine** | Run long work in phases with explicit gates | `task_chain` | Long tasks stay stable and reviewable |
 | **Suspend/resume on blockers** | Pause when blocked and resume with context later | `system_hook` | Interruptions do not reset progress |
 | **Memory as audit trail** | Record why decisions were made | `memo` / `system_recall` / `known_facts` | Better replay, migration, and reconstruction |
+
+Note: this is mainly an IDE/MCP-client issue. When a client spawns the server, the process working directory may not be the project root. Without program-level handling, data can end up next to the server binary or under the user's home directory.
+
+Project-level `.mpm-data/` is anchored to the real project root (symbols.db / mcp_memory.db / project_config.json live there). `initialize_project` makes that root explicit so indexes and memory do not land in the wrong place.
 
 ### 1.2 Execution Loop (Runtime View)
 
@@ -59,15 +63,39 @@ initialize_project
 
 ### 1.3 AST Indexing Principles
 
-MPM uses a Rust AST engine to parse code, maintaining three core fields:
+Indexing is not just "scan file names". It is a reusable data pipeline with 5 steps:
+
+1) Parse source with Tree-sitter
+- Extract functions/methods/classes from source files
+- Store file location (path, line range, signature)
+
+2) Normalize symbol identity
+- Generate `canonical_id` for each symbol (globally unique)
+- Maintain `scope_path` and `qualified_name`
+- Result: no guessing when symbols share names
+
+3) Build call graph edges
+- First record calls as caller -> callee_name
+- Then run a linking pass to resolve `callee_id` when possible
+- Result: call chains move from name-based to ID-based links
+
+4) Serve query-time retrieval
+- `code_search` runs a 5-layer progressive matcher (exact / prefix_suffix / substring / levenshtein / stem)
+- Merge candidates, dedupe by `canonical_id`, then return best match + alternatives
+
+5) Power impact analysis
+- `code_impact` runs multi-layer BFS over the call graph
+- Returns risk level, direct/indirect impact, and a modification checklist
+
+Core persisted fields:
 
 | Field | Description | Example |
 |-------|-------------|---------|
 | `canonical_id` | Globally unique identifier | `func:core/auth.go::Login` |
 | `scope_path` | Hierarchical scope | `AuthManager::Login` |
-| `callee_id` | Precise call chain | `func:db/query.go::Exec` |
+| `callee_id` | Precise call target | `func:db/query.go::Exec` |
 
-**Why it matters**: Eliminates "same-name function" ambiguity, `code_impact` can precisely track multi-layer call chains.
+In short: AST indexing turns symbol lookup and impact checks from text guessing into structured, repeatable queries.
 
 ---
 
@@ -241,8 +269,8 @@ Other candidates:
 
 **Gotchas**:
 - Query should be exact symbol name, NOT natural language description
-- If no exact match, falls back to ripgrep text search with deep context
-- Scope filtering is client-side enforced
+- If no AST match is found, falls back to ripgrep text search (with context)
+- `scope` is passed to the indexer; the server also applies a best-effort scope check for the best match
 - Type filtering supports function/method and class/struct/interface
 
 ---
@@ -594,7 +622,7 @@ known_facts(type="pitfall", summarize="Must check dependencies before modifying 
 
 Personality expression strength serves as a **signal** for context health:
 
-| Personality Expression | Meaning | Suggestion |
+| Personality Expression | Meaning | Recommendation |
 |----------------------|---------|------------|
 | Distinct style | Context healthy | Continue current session |
 | Blurred expression | Context diluted | New session / compact / input prompt to converge attention |
@@ -778,27 +806,28 @@ run `project_map` first, then use `flow_trace` to narrow the main chain.
 | Same-name ambiguity | Cannot distinguish | **canonical_id precision** |
 | Context | Need manual viewing | **Auto-return signature** |
 
-**Suggestion**: Use `code_search` to locate, then IDE to read in detail.
+**Recommendation**: Use `code_search` to locate, then IDE to read in detail.
 
 ---
 
-### Q3: What is the DICE complexity algorithm?
+### Q3: What is the practical value of DICE complexity?
 
-Calculates complexity based on **precise call chains**:
+Note: DICE complexity is an internal heuristic computed by the AST engine.
 
-```
-complexity_score = 
-    (out_degree × 2.0) +   // Fan-out: how many it calls
-    (in_degree × 1.0)      // Fan-in: how many depend on it
-```
+Practical uses:
 
-**Rating Levels**:
-| Score | Level | Suggestion |
-|-------|-------|------------|
-| 0-20 | Simple | Modify directly |
-| 20-50 | Medium | Check callers first |
-| 50-80 | High | Run `code_impact` first |
-| 80+ | Extreme | Need detailed planning |
+1) **Prioritization**
+- In `project_map` / `code_impact`, complexity highlights hotspots (what to review/verify first).
+
+2) **Execution strategy**
+- Lower score: usually safe to edit directly
+- Higher score: run impact analysis first
+- Very high score: use `task_chain` with phases and gates
+
+3) **Lower miss risk**
+- Higher complexity usually means denser dependencies, so call-chain checks matter more.
+
+Note: the exact scoring formula is an implementation detail and may change across versions. Treat it as a guidance signal, not a hard business rule.
 
 ---
 
@@ -811,7 +840,7 @@ complexity_score =
 | Human-readable log | `dev-log.md` |
 | Project rules | `_MPM_PROJECT_RULES.md` |
 
-**Suggestion**: Add `.mpm-data/` to `.gitignore`. `dev-log.md` is auto-generated and should also be ignored (recommended).
+**Recommendation**: Add `.mpm-data/` to `.gitignore`. `dev-log.md` is auto-generated and should also be ignored.
 
 **Project Binding**: `initialize_project` creates `.mpm-data/project_config.json` as an anchor. Future sessions auto-bind to this project root. If multiple anchors are found under a workspace aggregator folder, MPM refuses to guess and requires explicit `project_root`.
 
