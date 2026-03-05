@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"mcp-server-go/internal/core"
 	"mcp-server-go/internal/services"
@@ -92,19 +93,73 @@ func RegisterAnalysisTools(s *server.MCPServer, sm *SessionManager, ai *services
 		mcp.WithInputSchema[ProjectMapArgs](),
 	), wrapProjectMap(sm, ai))
 
+	// flow_trace 使用原始 JSON Schema 以支持 oneOf 约束
+	flowTraceSchema := `{
+  "type": "object",
+  "properties": {
+    "symbol_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "入口符号名（函数/类，与 file_path 二选一；若同时提供则优先 symbol_name）"
+    },
+    "file_path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "目标文件路径（与 symbol_name 二选一）"
+    },
+    "scope": {
+      "type": "string",
+      "description": "限定范围（目录，超大仓库建议必填）"
+    },
+    "direction": {
+      "type": "string",
+      "enum": ["backward", "forward", "both"],
+      "default": "both",
+      "description": "追踪方向"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["brief", "standard", "deep"],
+      "default": "brief",
+      "description": "输出层级（brief/standard/deep）"
+    },
+    "max_nodes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 120,
+      "default": 40,
+      "description": "输出节点上限"
+    }
+  },
+  "oneOf": [
+    {
+      "required": ["symbol_name"],
+      "not": {"required": ["file_path"]}
+    },
+    {
+      "required": ["file_path"],
+      "not": {"required": ["symbol_name"]}
+    }
+  ]
+}`
+
 	s.AddTool(mcp.NewTool("flow_trace",
 		mcp.WithDescription(`flow_trace - 业务流程追踪（文件/函数）
 
 用途：
-  用于理解业务逻辑主链路。与 code_impact 不同，它输出可读的“入口-上游-下游”流程摘要。
+  用于理解业务逻辑主链路。与 code_impact 不同，它输出可读的"入口-上游-下游"流程摘要。
 
 输入：
-  - symbol_name / file_path（二选一）
-  - 若两者都提供，优先使用 symbol_name
+  - symbol_name / file_path（二选一，必须且只能填一个）
   - scope（可选，建议在大项目中填写）
   - direction: backward/forward/both（默认 both）
   - mode: brief/standard/deep（默认 brief，渐进披露）
   - max_nodes: 输出节点上限（默认 40）
+
+⚠️ 重要规则：
+  - symbol_name 只填函数/类符号名（如 "run_indexer"）
+  - 文件名/文件基名（如 "SurvivalManager.go"）不要填 symbol_name，请使用 file_path
+  - 如果不确定符号名，请先用 code_search 确认精确符号名
 
 输出：
   - 入口点
@@ -119,7 +174,7 @@ func RegisterAnalysisTools(s *server.MCPServer, sm *SessionManager, ai *services
 触发词：
   - mpm 流程
   - mpm flow`),
-		mcp.WithInputSchema[FlowTraceArgs](),
+		mcp.WithRawInputSchema(json.RawMessage(flowTraceSchema)),
 	), wrapFlowTrace(sm, ai))
 }
 
@@ -549,8 +604,28 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 			return mcp.NewToolResultError("项目未初始化，请先执行 initialize_project"), nil
 		}
 
-		if strings.TrimSpace(args.SymbolName) == "" && strings.TrimSpace(args.FilePath) == "" {
-			return mcp.NewToolResultError("flow_trace 需要 symbol_name 或 file_path（至少一个）"), nil
+		// 强校验：只允许填一个入口字段（exactly one of）
+		hasSymbol := strings.TrimSpace(args.SymbolName) != ""
+		hasFile := strings.TrimSpace(args.FilePath) != ""
+		if !hasSymbol && !hasFile {
+			return mcp.NewToolResultError("❌ 参数错误：必须提供 symbol_name 或 file_path（二选一）\n\n" +
+				"提示：\n" +
+				"- 想追踪函数/类的调用链？使用 symbol_name=\"函数名\"\n" +
+				"- 想追踪文件内的流程？使用 file_path=\"相对路径\""), nil
+		}
+		if hasSymbol && hasFile {
+			return mcp.NewToolResultError("❌ 参数错误：symbol_name 和 file_path 不能同时提供（二选一）\n\n" +
+				"提示：\n" +
+				"- 如果目标是符号（函数/类），只填 symbol_name\n" +
+				"- 如果目标是文件，只填 file_path"), nil
+		}
+
+		// 检查 minLength 约束（防止空字符串）
+		if hasSymbol && len(strings.TrimSpace(args.SymbolName)) == 0 {
+			return mcp.NewToolResultError("❌ 参数错误：symbol_name 不能为空字符串"), nil
+		}
+		if hasFile && len(strings.TrimSpace(args.FilePath)) == 0 {
+			return mcp.NewToolResultError("❌ 参数错误：file_path 不能为空字符串"), nil
 		}
 
 		direction := strings.ToLower(strings.TrimSpace(args.Direction))
@@ -580,7 +655,36 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 				return mcp.NewToolResultError(fmt.Sprintf("symbol 定位失败: %v", err)), nil
 			}
 			if searchResult == nil || searchResult.FoundSymbol == nil {
-				return mcp.NewToolResultError(fmt.Sprintf("未找到符号: %s", args.SymbolName)), nil
+				// 构造友好的错误提示
+				var errMsg strings.Builder
+				errMsg.WriteString(fmt.Sprintf("❌ 未找到符号: `%s`\n\n", args.SymbolName))
+
+				// 如果有候选，列出 top 5
+				if searchResult != nil && len(searchResult.Candidates) > 0 {
+					errMsg.WriteString("**您是不是想找以下符号？**\n\n")
+					limit := 5
+					if len(searchResult.Candidates) < limit {
+						limit = len(searchResult.Candidates)
+					}
+					for i := 0; i < limit; i++ {
+						c := searchResult.Candidates[i]
+						name := c.Node.Name
+						if name == "" {
+							name = c.Node.QualifiedName
+						}
+						errMsg.WriteString(fmt.Sprintf("%d. `%s` @ %s:%d (%s, score=%.2f)\n",
+							i+1, name, c.Node.FilePath, c.Node.LineStart, c.MatchType, c.Score))
+					}
+					errMsg.WriteString("\n")
+				}
+
+				// 明确提示用户
+				errMsg.WriteString("**建议**:\n")
+				errMsg.WriteString("- 如果您的本意是**文件**，请改用 `file_path` 参数\n")
+				errMsg.WriteString("- 如果您的本意是**符号**，请先用 `code_search` 确认精确的符号名\n")
+				errMsg.WriteString("- 如果不确定，可以尝试 `code_search(query=\"关键词\")` 进行模糊搜索")
+
+				return mcp.NewToolResultError(errMsg.String()), nil
 			}
 			snap, err := buildFlowSnapshot(ai, sm.ProjectRoot, searchResult.FoundSymbol, direction)
 			if err != nil {

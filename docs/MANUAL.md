@@ -341,7 +341,7 @@ ACTION_REQUIRED_CHECKLIST
 | `mode` | string | No | Output level: "brief"/"standard"/"deep". Default: "brief" |
 | `max_nodes` | integer | No | Output node budget. Default: 40 |
 
-*Either `symbol_name` or `file_path` required.
+*Exactly one of `symbol_name` or `file_path` required. Empty strings are invalid.
 
 **Outputs**:
 - **Entry Point**: Symbol name, type, location, score
@@ -352,6 +352,9 @@ ACTION_REQUIRED_CHECKLIST
 - **Recommendations**: Next steps
 
 **Gotchas**:
+- `symbol_name` and `file_path` are mutually exclusive; exactly one must be provided
+- Do NOT pass file names or basenames (e.g., `SurvivalManager.go`, `SurvivalManager`) to `symbol_name`; use `file_path` for file-level analysis
+- When `symbol_name` is not found, tool returns candidate symbols (candidates) for selection
 - File mode: analyzes multiple entry candidates, shows top-scored ones
 - Use "brief" for quick overview, "standard"/"deep" for more detail
 - Scope strongly recommended for large repositories
