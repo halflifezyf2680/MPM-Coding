@@ -53,3 +53,10 @@ dev-log-archive/
 # Tool-generated files (do not commit)
 visualize_history.py
 mcp-server-go/internal/tools/analysis_tools_sideeffects_test.go
+
+# MCP Registry local files (do not commit)
+.mcpregistry_*
+mcp-publisher
+mcp-publisher.tar.gz
+server.json
+nul

@@ -62,11 +62,20 @@ jobs:
           Copy-Item -Recurse mcp-server-go/configs release/mpm-windows-amd64/
           Compress-Archive -Path release/mpm-windows-amd64 -DestinationPath release/mpm-windows-amd64.zip
 
-      - name: Upload artifact
+      - name: Upload artifact (release package)
         uses: actions/upload-artifact@v4
         with:
           name: mpm-windows-amd64
           path: release/mpm-windows-amd64.zip
+
+      - name: Upload artifact (binaries for mcpb)
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-windows-amd64
+          path: |
+            mcp-server-go/bin/mpm-go.exe
+            mcp-server-go/bin/ast_indexer.exe
+          retention-days: 1
 
   build-linux:
     name: Build Linux
@@ -121,11 +130,20 @@ jobs:
           cp -r mcp-server-go/configs release/mpm-linux-amd64/
           tar -czvf release/mpm-linux-amd64.tar.gz -C release mpm-linux-amd64
 
-      - name: Upload artifact
+      - name: Upload artifact (release package)
         uses: actions/upload-artifact@v4
         with:
           name: mpm-linux-amd64
           path: release/mpm-linux-amd64.tar.gz
+
+      - name: Upload artifact (binaries for mcpb)
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-linux-amd64
+          path: |
+            mcp-server-go/bin/mpm-go
+            mcp-server-go/bin/ast_indexer
+          retention-days: 1
 
   build-macos:
     name: Build macOS Universal
@@ -201,21 +219,174 @@ jobs:
           cp -r mcp-server-go/configs release/mpm-darwin-universal/
           tar -czvf release/mpm-darwin-universal.tar.gz -C release mpm-darwin-universal
 
-      - name: Upload artifact
+      - name: Upload artifact (release package)
         uses: actions/upload-artifact@v4
         with:
           name: mpm-darwin-universal
           path: release/mpm-darwin-universal.tar.gz
 
+      - name: Upload artifact (binaries for mcpb - darwin amd64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-darwin-amd64
+          path: |
+            mcp-server-go/bin/mpm-go-amd64
+            mcp-server-go/bin/ast_indexer-amd64
+          retention-days: 1
+
+      - name: Upload artifact (binaries for mcpb - darwin arm64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-darwin-arm64
+          path: |
+            mcp-server-go/bin/mpm-go-arm64
+            mcp-server-go/bin/ast_indexer-arm64
+          retention-days: 1
+
+  build-mcpb:
+    name: Build MCPB Bundle
+    needs: [build-windows, build-linux, build-macos]
+    runs-on: macos-latest
+    outputs:
+      mcpb_sha256: ${{ steps.sha256.outputs.hash }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Download all binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binaries-*
+          path: binaries
+          merge-multiple: false
+
+      - name: Assemble MCPB bundle
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION_NUM="${VERSION#v}"
+          export VERSION_NUM
+          
+          # Create mcpb directory structure
+          mkdir -p mcpb-bundle/server/linux
+          mkdir -p mcpb-bundle/server/darwin
+          mkdir -p mcpb-bundle/server/win32
+          
+          # Copy Linux binaries
+          if [ -d "binaries/binaries-linux-amd64" ]; then
+            cp binaries/binaries-linux-amd64/mpm-go mcpb-bundle/server/linux/
+            cp binaries/binaries-linux-amd64/ast_indexer mcpb-bundle/server/linux/
+            chmod +x mcpb-bundle/server/linux/*
+          fi
+          
+          # Build macOS universal binaries (amd64 + arm64)
+          if [ -d "binaries/binaries-darwin-amd64" ] && [ -d "binaries/binaries-darwin-arm64" ]; then
+            lipo -create \
+              -output mcpb-bundle/server/darwin/mpm-go \
+              binaries/binaries-darwin-amd64/mpm-go-amd64 \
+              binaries/binaries-darwin-arm64/mpm-go-arm64
+
+            lipo -create \
+              -output mcpb-bundle/server/darwin/ast_indexer \
+              binaries/binaries-darwin-amd64/ast_indexer-amd64 \
+              binaries/binaries-darwin-arm64/ast_indexer-arm64
+
+            chmod +x mcpb-bundle/server/darwin/*
+          fi
+          
+          # Copy Windows binaries
+          if [ -d "binaries/binaries-windows-amd64" ]; then
+            cp binaries/binaries-windows-amd64/mpm-go.exe mcpb-bundle/server/win32/
+            cp binaries/binaries-windows-amd64/ast_indexer.exe mcpb-bundle/server/win32/
+          fi
+          
+          # Generate manifest.json from template
+          python3 - << 'PY'
+          import json, os
+
+          version = os.environ.get('VERSION_NUM', '').strip() or '0.0.0'
+
+          with open('mcpb/manifest.json', 'r', encoding='utf-8') as f:
+              data = json.load(f)
+
+          data['version'] = version
+
+          with open('mcpb-bundle/manifest.json', 'w', encoding='utf-8') as f:
+              json.dump(data, f, indent=2)
+              f.write('\n')
+          PY
+          
+          # Create .mcpb file (zip format)
+          cd mcpb-bundle
+          zip -r ../mpm-coding-${VERSION}.mcpb .
+          cd ..
+          
+          echo "MCPB_FILE=mpm-coding-${VERSION}.mcpb" >> $GITHUB_ENV
+
+      - name: Calculate SHA256
+        id: sha256
+        run: |
+          HASH=$(shasum -a 256 "${{ env.MCPB_FILE }}" | cut -d' ' -f1)
+          echo "hash=${HASH}" >> $GITHUB_OUTPUT
+          echo "MCPB_SHA256=${HASH}" >> $GITHUB_ENV
+          echo "SHA256: ${HASH}"
+
+      - name: Generate server.json
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION_NUM="${VERSION#v}"
+          REPO_URL="${{ github.server_url }}/${{ github.repository }}"
+          DOWNLOAD_URL="${REPO_URL}/releases/download/${VERSION}/mpm-coding-${VERSION}.mcpb"
+          
+          cat > server.json << SERVERJSON_EOF
+          {
+            "\$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+            "name": "io.github.halflifezyf2680/mpm-coding",
+            "title": "MPM-Coding",
+            "description": "Local MCP server for engineering workflows: AST-based code navigation, impact/flow analysis, task orchestration, and memo/recall memory.",
+            "version": "${VERSION_NUM}",
+            "packages": [
+              {
+                "registryType": "mcpb",
+                "identifier": "${DOWNLOAD_URL}",
+                "fileSha256": "${{ env.MCPB_SHA256 }}",
+                "transport": {
+                  "type": "stdio"
+                }
+              }
+            ],
+            "repository": {
+              "url": "https://github.com/halflifezyf2680/MPM-Coding",
+              "source": "github"
+            },
+            "websiteUrl": "https://github.com/halflifezyf2680/MPM-Coding"
+          }
+          SERVERJSON_EOF
+          
+          cat server.json
+
+      - name: Upload MCPB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcpb-bundle
+          path: |
+            ${{ env.MCPB_FILE }}
+            server.json
+          retention-days: 1
+
   release:
     name: Create Release
-    needs: [build-windows, build-linux, build-macos]
+    needs: [build-windows, build-linux, build-macos, build-mcpb]
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Download all artifacts
@@ -230,8 +401,13 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release-assets
-          find artifacts -name "*.zip" -exec cp {} release-assets/ \;
-          find artifacts -name "*.tar.gz" -exec cp {} release-assets/ \;
+          # Copy platform packages
+          find artifacts -name "*.zip" -path "*/mpm-*" -exec cp {} release-assets/ \;
+          find artifacts -name "*.tar.gz" -path "*/mpm-*" -exec cp {} release-assets/ \;
+          # Copy mcpb bundle
+          cp artifacts/mcpb-bundle/*.mcpb release-assets/ || true
+          cp artifacts/mcpb-bundle/server.json release-assets/ || true
+          # Generate SHA256SUMS including all assets
           cd release-assets
           sha256sum * > SHA256SUMS
           ls -la
@@ -240,7 +416,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.version.outputs.VERSION }}
-          name: MPM ${{ steps.version.outputs.VERSION }}
+          name: MPM-Coding ${{ steps.version.outputs.VERSION }}
           body: |
             ## MPM-Coding MCP
             
@@ -251,12 +427,18 @@ jobs:
             | Windows x64 | `mpm-windows-amd64.zip` |
             | Linux x64 | `mpm-linux-amd64.tar.gz` |
             | macOS Universal | `mpm-darwin-universal.tar.gz` |
+            | MCP Registry bundle | `mpm-coding-${{ steps.version.outputs.VERSION }}.mcpb` |
             
             ### Usage
             
             1. Download the package for your platform
             2. Extract to any directory
             3. Point your MCP client to the `mpm-go` executable
+            
+            ### Registry metadata
+            
+            This release also includes:
+            - `server.json` (MCP Registry metadata)
             
             ### Verification
             
@@ -266,3 +448,32 @@ jobs:
           draft: false
           prerelease: false
           files: release-assets/*
+
+  publish-registry:
+    name: Publish to MCP Registry
+    needs: [build-mcpb, release]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download mcpb bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: mcpb-bundle
+          path: mcpb-bundle
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server to MCP Registry
+        run: ./mcp-publisher publish
+        working-directory: mcpb-bundle
