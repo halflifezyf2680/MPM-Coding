@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -83,16 +85,20 @@ func (m *DatabaseManager) init() error {
 		return err
 	}
 
+	// SQLite 单写多读场景下，限制到单连接可显著降低本进程内锁竞争。
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
 	// 性能与并发优化 (WAL 模式)
 	pragmas := []string{
+		"PRAGMA busy_timeout = 30000",
 		"PRAGMA foreign_keys = ON",
 		"PRAGMA journal_mode = WAL",
 		"PRAGMA synchronous = NORMAL",
-		"PRAGMA busy_timeout = 30000",
 	}
 
 	for _, p := range pragmas {
-		if _, err := db.Exec(p); err != nil {
+		if err := exec_sql_with_retry(db, p); err != nil {
 			db.Close()
 			return err
 		}
@@ -101,11 +107,48 @@ func (m *DatabaseManager) init() error {
 	m.db = db
 
 	// 执行 Schema 自愈
-	if err := m.healSchema(); err != nil {
+	if err := with_sqlite_busy_retry(func() error { return m.healSchema() }); err != nil {
 		fmt.Fprintf(os.Stderr, "[DB][WARN] Schema healing failed: %v\n", err)
 	}
 
 	return nil
+}
+
+func exec_sql_with_retry(db *sql.DB, query string) error {
+	return with_sqlite_busy_retry(func() error {
+		_, err := db.Exec(query)
+		return err
+	})
+}
+
+func with_sqlite_busy_retry(fn func() error) error {
+	const maxAttempts = 6
+	const baseDelay = 200 * time.Millisecond
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := fn(); err != nil {
+			lastErr = err
+			if !is_sqlite_busy_error(err) || attempt == maxAttempts {
+				break
+			}
+			time.Sleep(time.Duration(attempt) * baseDelay)
+			continue
+		}
+		return nil
+	}
+
+	return lastErr
+}
+
+func is_sqlite_busy_error(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "database is locked") ||
+		strings.Contains(msg, "database table is locked") ||
+		strings.Contains(msg, "sqlite_busy")
 }
 
 func (m *DatabaseManager) healSchema() error {

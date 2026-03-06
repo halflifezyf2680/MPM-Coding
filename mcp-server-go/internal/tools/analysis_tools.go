@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"mcp-server-go/internal/core"
 	"mcp-server-go/internal/services"
@@ -93,56 +92,6 @@ func RegisterAnalysisTools(s *server.MCPServer, sm *SessionManager, ai *services
 		mcp.WithInputSchema[ProjectMapArgs](),
 	), wrapProjectMap(sm, ai))
 
-	// flow_trace 使用原始 JSON Schema 以支持 oneOf 约束
-	flowTraceSchema := `{
-  "type": "object",
-  "properties": {
-    "symbol_name": {
-      "type": "string",
-      "minLength": 1,
-      "description": "入口符号名（函数/类，与 file_path 二选一；若同时提供则优先 symbol_name）"
-    },
-    "file_path": {
-      "type": "string",
-      "minLength": 1,
-      "description": "目标文件路径（与 symbol_name 二选一）"
-    },
-    "scope": {
-      "type": "string",
-      "description": "限定范围（目录，超大仓库建议必填）"
-    },
-    "direction": {
-      "type": "string",
-      "enum": ["backward", "forward", "both"],
-      "default": "both",
-      "description": "追踪方向"
-    },
-    "mode": {
-      "type": "string",
-      "enum": ["brief", "standard", "deep"],
-      "default": "brief",
-      "description": "输出层级（brief/standard/deep）"
-    },
-    "max_nodes": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 120,
-      "default": 40,
-      "description": "输出节点上限"
-    }
-  },
-  "oneOf": [
-    {
-      "required": ["symbol_name"],
-      "not": {"required": ["file_path"]}
-    },
-    {
-      "required": ["file_path"],
-      "not": {"required": ["symbol_name"]}
-    }
-  ]
-}`
-
 	s.AddTool(mcp.NewTool("flow_trace",
 		mcp.WithDescription(`flow_trace - 业务流程追踪（文件/函数）
 
@@ -171,10 +120,10 @@ func RegisterAnalysisTools(s *server.MCPServer, sm *SessionManager, ai *services
   flow_trace(symbol_name="run_indexer", scope="mcp-server-go/internal/services", direction="both")
   flow_trace(file_path="mcp-server-go/internal/tools/analysis_tools.go", direction="forward", max_nodes=30)
 
-触发词：
-  - mpm 流程
-  - mpm flow`),
-		mcp.WithRawInputSchema(json.RawMessage(flowTraceSchema)),
+		触发词：
+		  - mpm 流程
+		  - mpm flow`),
+		mcp.WithInputSchema[FlowTraceArgs](),
 	), wrapFlowTrace(sm, ai))
 }
 
