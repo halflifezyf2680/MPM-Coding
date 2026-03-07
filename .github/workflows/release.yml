@@ -201,7 +201,6 @@ jobs:
         run: |
           lipo -create mpm-go-amd64 mpm-go-arm64 -output mpm-go
           lipo -create ast_indexer-amd64 ast_indexer-arm64 -output ast_indexer
-          rm -f mpm-go-amd64 mpm-go-arm64 ast_indexer-amd64 ast_indexer-arm64
 
       - name: Prepare release package
         run: |
@@ -474,6 +473,41 @@ jobs:
       - name: Authenticate to MCP Registry
         run: ./mcp-publisher login github-oidc
 
-      - name: Publish server to MCP Registry
-        run: ../mcp-publisher publish
+      - name: Wait for release asset availability
         working-directory: mcpb-bundle
+        run: |
+          ASSET_URL=$(python3 - <<'PY'
+          import json
+          with open('server.json', 'r', encoding='utf-8') as f:
+              data = json.load(f)
+          print(data['packages'][0]['identifier'])
+          PY
+          )
+
+          echo "Waiting for release asset: ${ASSET_URL}"
+          for i in $(seq 1 30); do
+            if curl -fsSLI "${ASSET_URL}" >/dev/null; then
+              echo "Release asset is reachable"
+              exit 0
+            fi
+            echo "Attempt ${i}/30: asset not ready yet, sleeping 10s"
+            sleep 10
+          done
+
+          echo "Release asset did not become reachable in time"
+          exit 1
+
+      - name: Publish server to MCP Registry
+        working-directory: mcpb-bundle
+        run: |
+          for i in $(seq 1 5); do
+            if ../mcp-publisher publish; then
+              echo "Registry publish succeeded"
+              exit 0
+            fi
+            echo "Publish attempt ${i}/5 failed, sleeping 15s"
+            sleep 15
+          done
+
+          echo "Registry publish failed after retries"
+          exit 1
