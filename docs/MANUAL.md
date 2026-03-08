@@ -101,23 +101,24 @@ In short: AST indexing turns symbol lookup and impact checks from text guessing 
 
 ## 2. Tool Reference
 
-### 2.0 Tool Inventory (13 Tools)
+### 2.0 Tool Inventory (14 Tools)
 
 | # | Tool Name | Category | Description |
 |---|-----------|----------|-------------|
 | 1 | `initialize_project` | System | Initialize project environment and database |
 | 2 | `index_status` | System | Check background AST indexing status |
 | 3 | `project_map` | Perception | Project structure navigation map |
-| 4 | `flow_trace` | Perception | Business flow trace (entry/upstream/downstream) |
-| 5 | `code_search` | Perception | AST-based symbol lookup with precise location |
-| 6 | `code_impact` | Perception | Call chain impact analysis |
-| 7 | `task_chain` | Scheduling | Protocol state machine for multi-step tasks |
-| 8 | `system_hook` | Scheduling | Create/list/release todo hooks (unified tool) |
-| 9 | `memo` | Memory | Record change documentation (SSOT) |
-| 10 | `system_recall` | Memory | Retrieve historical decisions and changes |
-| 11 | `known_facts` | Memory | Archive verified rules and pitfall experiences |
-| 12 | `persona` | Enhancement | AI personality management |
-| 13 | `open_timeline` | Enhancement | Generate and open project evolution timeline |
+| 4 | `module_map` | Perception | Module-level business portrait (scope-focused analysis) |
+| 5 | `flow_trace` | Perception | Business flow trace (entry/upstream/downstream) |
+| 6 | `code_search` | Perception | AST-based symbol lookup with precise location |
+| 7 | `code_impact` | Perception | Call chain impact analysis |
+| 8 | `task_chain` | Scheduling | Protocol state machine for multi-step tasks |
+| 9 | `system_hook` | Scheduling | Create/list/release todo hooks (unified tool) |
+| 10 | `memo` | Memory | Record change documentation (SSOT) |
+| 11 | `system_recall` | Memory | Retrieve historical decisions and changes |
+| 12 | `known_facts` | Memory | Archive verified rules and pitfall experiences |
+| 13 | `persona` | Enhancement | AI personality management |
+| 14 | `open_timeline` | Enhancement | Generate and open project evolution timeline |
 
 ---
 
@@ -217,6 +218,75 @@ In short: AST indexing turns symbol lookup and impact checks from text guessing 
 - Use "structure" level for quick directory overview
 - Use "symbols" level for detailed code navigation
 - Complexity analysis based on DICE algorithm
+
+---
+
+#### module_map
+
+**Purpose**: Module-level business portrait. Generates a "how this area works in the system" profile for a directory or file scope. Helps LLMs build mental models before reading code.
+
+**Triggers**: `mpm module`, `mpm 模块`
+
+**Parameters**:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `scope` | string | Yes | Module scope (directory or file path) |
+| `entry_symbol` | string | No | Optional entry symbol; auto-selected if empty |
+| `mode` | string | No | Output level: "brief"/"standard"/"deep". Default: "standard" |
+| `max_entries` | integer | No | Max candidate entries to analyze. Default: 3 |
+
+**Outputs**:
+- **Module Positioning**: What this area does (based on scope name + top entries + stages)
+- **Core Components**: Key files/symbols/types in the scope
+- **Main Flow Steps**: Step 1 → Step 2 → Step 3 (inferred from stages and downstream nodes)
+- **Top Entries**: High-score entry points for modifications
+- **Test Anchors**: Test files in scope or nearby directories
+- **Reading Suggestions**: Which files/entries to read first
+- **Stage Tags** (standard/deep mode): init/validate/execute/query/persist
+- **Side Effect Tags** (standard/deep mode): filesystem/database/network/process/state
+
+**Example**:
+```
+### 📦 Module Map
+
+#### 📋 模块定位
+📁 **tools** 区域 — 阶段特征: execute / query
+🎯 主要入口: `RegisterAnalysisTools`
+
+#### 🧩 核心组成
+- 📄 `internal/tools/analysis_tools.go`
+- 🔹 [callable] `wrapProjectMap`
+- 🔹 [callable] `buildFlowSnapshot`
+
+#### 🔄 主流程步骤
+- Step 1: [execute]
+- Step 2: → `MapProjectWithScope`
+- Step 3: → `RenderStandard`
+
+#### 🎯 修改入口 (Top Entries)
+- 🔥 `RegisterAnalysisTools` (评分: 85.0)
+- 🔥 `wrapProjectMap` (评分: 72.5)
+
+#### ✅ 测试锚点
+- ✅ `TestDetectSideEffects_EvidenceFilesystem` @ analysis_tools_test.go
+
+#### 📖 阅读建议
+- 1️⃣ 先读 `RegisterAnalysisTools` (internal/tools/analysis_tools.go)
+- 2️⃣ 再读 `internal/tools/map_renderer.go`
+```
+
+**Gotchas**:
+- `scope` is mandatory (unlike `project_map` which defaults to entire project)
+- Entry selection is heuristic-based (name patterns, call counts, scores)
+- Does NOT perform strict classification (module/feature/subsystem); provides weak labels and positioning hints
+- Focuses on "how this area works" rather than directory structure
+- Reuses underlying `MapProjectWithScope`, `buildFlowSnapshot`, and `AnalyzeComplexity` services directly
+
+**When to Use**:
+- When you need to understand a specific module/area quickly
+- Before diving into code in a new directory
+- When planning modifications to a subsystem
+- To find entry points and test anchors for a scope
 
 ---
 

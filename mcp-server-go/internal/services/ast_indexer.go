@@ -303,7 +303,14 @@ func getOutputPath(projectRoot string, mode string) string {
 	// 使用新的数据目录名
 	mpmData := filepath.Join(absRoot, core.DataDirName)
 	_ = os.MkdirAll(mpmData, 0755)
-	return filepath.Join(mpmData, fmt.Sprintf(".ast_result_%s.json", mode))
+	pattern := fmt.Sprintf(".ast_result_%s_*.json", mode)
+	if f, err := os.CreateTemp(mpmData, pattern); err == nil {
+		path := f.Name()
+		_ = f.Close()
+		_ = os.Remove(path)
+		return path
+	}
+	return filepath.Join(mpmData, fmt.Sprintf(".ast_result_%s_%d.json", mode, time.Now().UnixNano()))
 }
 
 // ============================================================================
@@ -576,6 +583,7 @@ func (ai *ASTIndexer) MapProject(projectRoot string, detail string) (*MapResult,
 func (ai *ASTIndexer) StructureProjectWithScope(projectRoot string, scope string) (*StructureResult, error) {
 	dbPath := getDBPath(projectRoot)
 	outputPath := getOutputPath(projectRoot, "structure")
+	defer os.Remove(outputPath)
 	_, ignoreDirs := detectTechStackAndConfig(projectRoot)
 
 	_ = os.Remove(outputPath)
@@ -626,6 +634,7 @@ func (ai *ASTIndexer) StructureProjectWithScope(projectRoot string, scope string
 func (ai *ASTIndexer) MapProjectWithScope(projectRoot string, detail string, scope string) (*MapResult, error) {
 	dbPath := getDBPath(projectRoot)
 	outputPath := getOutputPath(projectRoot, "map")
+	defer os.Remove(outputPath)
 
 	// 清理旧文件
 	_ = os.Remove(outputPath)
@@ -686,6 +695,7 @@ func (ai *ASTIndexer) SearchSymbol(projectRoot string, query string) (*QueryResu
 func (ai *ASTIndexer) SearchSymbolWithScope(projectRoot string, query string, scope string) (*QueryResult, error) {
 	dbPath := getDBPath(projectRoot)
 	outputPath := getOutputPath(projectRoot, "query")
+	defer os.Remove(outputPath)
 
 	// 清理旧文件
 	_ = os.Remove(outputPath)
@@ -726,6 +736,7 @@ func (ai *ASTIndexer) SearchSymbolWithScope(projectRoot string, query string, sc
 func (ai *ASTIndexer) GetSymbolAtLine(projectRoot string, filePath string, line int) (*Node, error) {
 	dbPath := getDBPath(projectRoot)
 	outputPath := getOutputPath(projectRoot, fmt.Sprintf("line_%d", line))
+	defer os.Remove(outputPath)
 
 	// 清理所有旧的 line_*.json 临时文件（避免泄漏）
 	mpmData := filepath.Join(projectRoot, core.DataDirName)
@@ -777,6 +788,7 @@ func (ai *ASTIndexer) Analyze(projectRoot string, symbol string, direction strin
 
 	dbPath := getDBPath(projectRoot)
 	outputPath := getOutputPath(projectRoot, "analyze")
+	defer os.Remove(outputPath)
 
 	// 清理旧文件
 	_ = os.Remove(outputPath)
@@ -873,6 +885,7 @@ func (ai *ASTIndexer) IndexFull(projectRoot string) (*IndexResult, error) {
 func (ai *ASTIndexer) indexWithOptions(projectRoot string, scope string, forceFull bool) (*IndexResult, error) {
 	dbPath := getDBPath(projectRoot)
 	outputPath := getOutputPath(projectRoot, "index")
+	defer os.Remove(outputPath)
 
 	// 确保 .mpm-data 目录存在
 	mpmData := filepath.Join(projectRoot, core.DataDirName)

@@ -98,3 +98,31 @@ func TestBuildIndexArgs_ForceFullAddsFlag(t *testing.T) {
 		t.Fatalf("expected --force-full in args, got %v", args)
 	}
 }
+
+func TestGetOutputPath_ReturnsUniqueTempFiles(t *testing.T) {
+	root := t.TempDir()
+	first := getOutputPath(root, "query")
+	second := getOutputPath(root, "query")
+
+	if first == second {
+		t.Fatalf("expected unique output paths, got same path %q", first)
+	}
+	if filepath.Dir(first) != filepath.Join(root, ".mpm-data") {
+		t.Fatalf("expected first path under .mpm-data, got %q", first)
+	}
+	if filepath.Dir(second) != filepath.Join(root, ".mpm-data") {
+		t.Fatalf("expected second path under .mpm-data, got %q", second)
+	}
+	if !strings.Contains(filepath.Base(first), ".ast_result_query_") {
+		t.Fatalf("unexpected first file name: %q", filepath.Base(first))
+	}
+	if !strings.Contains(filepath.Base(second), ".ast_result_query_") {
+		t.Fatalf("unexpected second file name: %q", filepath.Base(second))
+	}
+	if _, err := os.Stat(first); !os.IsNotExist(err) {
+		t.Fatalf("temp output path should not leave a pre-created file, stat err=%v", err)
+	}
+	if _, err := os.Stat(second); !os.IsNotExist(err) {
+		t.Fatalf("temp output path should not leave a pre-created file, stat err=%v", err)
+	}
+}
