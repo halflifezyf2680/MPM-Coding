@@ -352,6 +352,7 @@ jobs:
               {
                 "registryType": "mcpb",
                 "identifier": "${DOWNLOAD_URL}",
+                "version": "${VERSION_NUM}",
                 "fileSha256": "${{ env.MCPB_SHA256 }}",
                 "transport": {
                   "type": "stdio"
@@ -496,6 +497,12 @@ jobs:
 
           echo "Release asset did not become reachable in time"
           exit 1
+
+      - name: Validate server.json
+        working-directory: mcpb-bundle
+        run: |
+          echo "Validating server.json before publish..."
+          ../mcp-publisher validate
 
       - name: Publish server to MCP Registry
         working-directory: mcpb-bundle
