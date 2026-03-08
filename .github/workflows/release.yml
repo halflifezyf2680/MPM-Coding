@@ -346,7 +346,7 @@ jobs:
             "\$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
             "name": "io.github.halflifezyf2680/mpm-coding",
             "title": "MPM-Coding",
-            "description": "Local MCP server for engineering workflows: AST-based code navigation, impact/flow analysis, task orchestration, and memo/recall memory.",
+            "description": "Tool-first MCP: AST nav, impact/flow, task chains, memo/recall.",
             "version": "${VERSION_NUM}",
             "packages": [
               {
