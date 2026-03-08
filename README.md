@@ -89,7 +89,7 @@ Report results after each phase and wait for confirmation before proceeding.
 
 #### Closed-Loop Checklist
 
-- **Understand**: `project_map` / `flow_trace` to grasp project structure
+- **Understand**: `project_map` for structure, `flow_trace` for main chains
 - **Locate**: `code_search` to pinpoint symbols
 - **Assess**: `code_impact` to analyze call chain impact
 - **Change**: Write code, fix compilation errors
@@ -168,6 +168,7 @@ Notes:
 
 - `How to do impact analysis in MCP?` -> use `code_impact`
 - `How to make LLM understand business logic flow?` -> use `flow_trace`
+- `How to quickly understand a module/area in the system?` -> use `project_map` (structure) + `flow_trace` (main chains)
 - `How to monitor indexing progress for large repositories?` -> use `index_status`
 - `How to force full indexing?` -> `initialize_project(force_full_index=true)`
 

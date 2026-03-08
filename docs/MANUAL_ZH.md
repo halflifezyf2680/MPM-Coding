@@ -24,22 +24,22 @@
 
 1. 动手前先把位置和影响看清楚，少靠猜
 2. 任务一长就分阶段跑，每段有验收点，中断后还能接上
-3. 把“为什么这么改”记下来，后面你自己或队友都能接着干
+3. 把"为什么这么改"记下来，后面你自己或队友都能接着干
 
 对应到实际落地，是下面这些核心概念：
 
 | 核心概念 | 一句话说明 | 主要工具 | 落地结果 |
 |------|------|---------|---------|
 | **项目锚点** | 先把当前会话绑定到正确项目根 | `initialize_project` | 让索引/记忆落在正确目录（部分 MCP 客户端不会保证工作目录就是项目根） |
-| **定位优先** | 改代码前先找到真实入口和符号 | `project_map` / `flow_trace` / `code_search` | 减少“到处翻文件” |
+| **定位优先** | 改代码前先找到真实入口和符号 | `project_map` / `flow_trace` / `code_search` | 减少"到处翻文件" |
 | **影响前置** | 修改函数前先看调用链影响 | `code_impact` | 减少改一处炸一片 |
 | **任务状态机** | 长任务分阶段执行，每段有验收点 | `task_chain` | 长任务更稳，跑偏更少 |
 | **阻塞可挂起** | 缺信息时挂起，补齐后恢复 | `system_hook` | 中断后可续跑，不丢上下文 |
-| **记忆即审计** | 记录“为什么这么改”，不是只记“改了什么” | `memo` / `system_recall` / `known_facts` | 可复盘、可迁移、可重建 |
+| **记忆即审计** | 记录"为什么这么改"，不是只记"改了什么" | `memo` / `system_recall` / `known_facts` | 可复盘、可迁移、可重建 |
 
-补充说明：这主要是 IDE/MCP 客户端场景的问题。客户端启动 server 时不一定会把工作目录设成“项目根”，如果不做程序级处理，数据目录很容易落在 server 可执行文件所在目录，或者系统用户目录下。
+补充说明：这主要是 IDE/MCP 客户端场景的问题。客户端启动 server 时不一定会把工作目录设成"项目根"，如果不做程序级处理，数据目录很容易落在 server 可执行文件所在目录，或者系统用户目录下。
 
-MPM 之所以需要“项目锚点”，核心原因是：**项目级 `.mpm-data/` 是按“真实项目根”来放的**（symbols.db / mcp_memory.db / project_config.json 都在这里）。`initialize_project` 做的就是把这个根目录明确下来，确保索引与记忆不会写错位置。
+MPM 之所以需要"项目锚点"，核心原因是：**项目级 `.mpm-data/` 是按"真实项目根"来放的**（symbols.db / mcp_memory.db / project_config.json 都在这里）。`initialize_project` 做的就是把这个根目录明确下来，确保索引与记忆不会写错位置。
 
 ### 1.2 执行闭环（运行时视角）
 
@@ -63,7 +63,7 @@ initialize_project
 
 ### 1.3 AST 索引原理
 
-索引不是“扫一遍文件名”，而是一个可复用的数据管线。简化后分 5 步：
+索引不是"扫一遍文件名"，而是一个可复用的数据管线。简化后分 5 步：
 
 1) 解析源码（Tree-sitter）
 - 扫描项目源码文件，提取函数/方法/类等符号
@@ -77,11 +77,11 @@ initialize_project
 3) 建调用边（Call Graph）
 - 先记录调用关系（caller -> callee_name）
 - 再做一次链接，把可解析的调用补成 `callee_id`
-- 结果：调用链从“名字匹配”升级为“ID 级连接”
+- 结果：调用链从"名字匹配"升级为"ID 级连接"
 
 4) 提供查询能力
 - `code_search` 使用 5 层渐进匹配（exact / prefix_suffix / substring / levenshtein / stem）
-- 所有候选合并后按 `canonical_id` 去重，返回“最佳匹配 + 其他候选”
+- 所有候选合并后按 `canonical_id` 去重，返回"最佳匹配 + 其他候选"
 
 5) 支撑影响分析
 - `code_impact` 基于调用图做多层 BFS 传播分析
@@ -95,7 +95,7 @@ initialize_project
 | `scope_path` | 层级作用域 | `AuthManager::Login` |
 | `callee_id` | 精确调用链目标 | `func:db/query.go::Exec` |
 
-一句话总结：AST 索引把“找代码/看影响”从文本猜测，变成可计算、可复现的结构化查询。
+一句话总结：AST 索引把"找代码/看影响"从文本猜测，变成可计算、可复现的结构化查询。
 
 ---
 
@@ -108,12 +108,12 @@ initialize_project
 | 1 | `initialize_project` | 系统 | 初始化项目环境和数据库 |
 | 2 | `index_status` | 系统 | 查看后台 AST 索引状态 |
 | 3 | `project_map` | 感知 | 项目结构导航地图 |
-| 4 | `flow_trace` | 感知 | 业务流程追踪 (入口/上游/下游) |
+| 4 | `flow_trace` | 感知 | 业务流程追踪（入口/上游/下游） |
 | 5 | `code_search` | 感知 | AST 精确符号定位 |
 | 6 | `code_impact` | 感知 | 调用链影响分析 |
 | 7 | `task_chain` | 调度 | 协议状态机任务链管理 |
-| 8 | `system_hook` | 调度 | 待办钩子管理 (创建/列表/释放) |
-| 9 | `memo` | 记忆 | 变更备忘录 (SSOT) |
+| 8 | `system_hook` | 调度 | 待办钩子管理（创建/列表/释放） |
+| 9 | `memo` | 记忆 | 变更备忘录（SSOT） |
 | 10 | `system_recall` | 记忆 | 检索历史决策和变更 |
 | 11 | `known_facts` | 记忆 | 存档经过验证的铁律和避坑经验 |
 | 12 | `persona` | 增强 | AI 人格管理 |
@@ -270,7 +270,7 @@ ID: func:src/auth/login.go::Login
 **注意事项**：
 - 查询应为精确符号名，不是自然语言描述
 - 无 AST 匹配时，回退到 ripgrep 文本搜索（并附带上下文）
-- `scope` 会传给索引引擎；服务端也会对“最佳匹配”做一次 best-effort 的范围校验
+- `scope` 会传给索引引擎；服务端也会对"最佳匹配"做一次 best-effort 的范围校验
 - 类型过滤支持 function/method 和 class/struct/interface
 
 ---
@@ -327,21 +327,21 @@ ACTION_REQUIRED_CHECKLIST
 
 #### flow_trace
 
-**用途**：业务流程追踪，用于理解业务逻辑主链路。输出可读的"入口-上游-下游"流程摘要。比 `code_impact` 更偏流程理解。
+**用途**：给 LLM 建立代码阅读主链的导航工具。基于入口符号或文件，输出"入口-上游-下游"的可读流程摘要，帮助 LLM 按关键节点顺序继续阅读，减少直接通读整文件时的遗漏和误判。
 
 **触发词**：`mpm flow`, `mpm 流程`
 
 **参数**：
 | 字段 | 类型 | 必填 | 描述 |
 |------|------|------|------|
-| `symbol_name` | string | 否* | 入口符号（函数/类）。同时提供时优先。 |
-| `file_path` | string | 否* | 目标文件路径。symbol_name 的替代方案。 |
+| `symbol_name` | string | 否* | 入口符号（函数/类）。与 file_path 二选一；若同时提供则优先 symbol_name |
+| `file_path` | string | 否* | 目标文件路径。与 symbol_name 二选一 |
 | `scope` | string | 否 | 限定范围（大仓建议必填） |
 | `direction` | string | 否 | 方向: "backward"/"forward"/"both"。默认: "both" |
 | `mode` | string | 否 | 输出层级: "brief"/"standard"/"deep"。默认: "brief" |
 | `max_nodes` | integer | 否 | 输出节点预算上限。默认: 40 |
 
-*`symbol_name` 或 `file_path` 至少需要一个。
+*`symbol_name` 或 `file_path` 至少需要一个。不确定符号名时先用 `code_search`。
 
 **输出**：
 - **入口点**: 符号名、类型、位置、评分
@@ -349,9 +349,12 @@ ACTION_REQUIRED_CHECKLIST
 - **关键路径**: Top 3 重要路径
 - **阶段摘要**: init/validate/execute/query/persist 阶段
 - **副作用**: filesystem/database/network/process/state
-- **建议**: 下一步操作
+- **建议**: 下一步阅读建议
 
 **注意事项**：
+- `symbol_name` 只填函数/类名；文件名或文件基名不要填 symbol_name，请用 `file_path`
+- 不确定符号名时先用 `code_search`
+- 拿到 flow 结果后，优先 Read 入口文件和测试锚点，不要直接整文件硬读猜逻辑
 - 文件模式: 分析多个候选入口，展示高分的几个
 - 使用 "brief" 快速浏览，"standard"/"deep" 获取更多细节
 - 大型仓库强烈建议填写 scope
@@ -698,7 +701,10 @@ known_facts(type="避坑", summarize="修改 session 逻辑前必须先检查依
        │                   ▲                   │
        └───────────────────┴───────────────────┘
 
-[建议] 项目文件数 > 100 且用户未提及任何符号时，先用 project_map 了解结构，再用 flow_trace 收敛主链。
+[建议] 项目文件数 > 100 且用户未提及任何符号时：
+  - 先用 project_map 了解整体结构
+  - 需要追踪调用链时用 flow_trace 找上下游
+  - 最后用 flow_trace 收敛主链阅读路径
 ```
 
 ### 3.2 黄金法则
@@ -825,7 +831,7 @@ known_facts(type="避坑", summarize="修改 session 逻辑前必须先检查依
 用途：
 
 1) **标记热点（排优先级）**
-- 在 `project_map` / `code_impact` 的输出中用于提示“哪里更值得优先看/优先验证”。
+- 在 `project_map` / `code_impact` 的输出中用于提示"哪里更值得优先看/优先验证"。
 
 2) **辅助选择执行策略**
 - 分数低：通常可以直接修改
@@ -835,7 +841,7 @@ known_facts(type="避坑", summarize="修改 session 逻辑前必须先检查依
 3) **降低漏改风险**
 - 分数越高往往依赖越密集，越应该先看调用链，再动手改。
 
-备注：具体计算公式属于实现细节，可能随版本调整；建议把它当“提示信号”，不要当成稳定的业务规则。
+备注：具体计算公式属于实现细节，可能随版本调整；建议把它当"提示信号"，不要当成稳定的业务规则。
 
 ---
 
@@ -874,7 +880,6 @@ known_facts(type="避坑", summarize="修改 session 逻辑前必须先检查依
 | 系统 | `mpm 初始化` | `initialize_project` |
 | 系统 | `mpm 索引状态` `mpm index status` | `index_status` |
 | 定位 | `mpm 搜索` `mpm 定位` | `code_search` |
-| 分析 | `mpm 影响` `mpm 依赖` | `code_impact` |
 | 地图 | `mpm 地图` `mpm 结构` | `project_map` |
 | 流程 | `mpm 流程` `mpm flow` | `flow_trace` |
 | 链式 | `mpm 任务链` `mpm chain` | `task_chain` |
