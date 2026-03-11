@@ -26,22 +26,17 @@ func RegisterSearchTools(s *server.MCPServer, sm *SessionManager, ai *services.A
 
 用途：
   【精确定位】当你只知道名字（函数名/类名），但不知道它在哪个文件时，别用 grep，用我。
-  我也支持搜索特定范围内的符号定义，是阅读代码的导航员。
 
-参数策略：
-  query (必填)
-    不要写自然语言！直接写代码符号名（如 "SessionManager" 或 "HandleRequest"）。
-  
-  scope (可选)
-    知道大概在哪个目录？填进来（如 "internal/core"），能大幅提高准确率。
-  
-  search_type (可选)
-    - 找函数实现？ -> "function"
-    - 找数据结构？ -> "class"
-    - 只要是代码？ -> "any" (默认)
+参数速查：
+  query       (必填) 符号名，如 "SessionManager"、"handleRequest"
+  scope       (可选) 限定目录，如 "internal/core"
+  search_type (可选) any|function|class（默认 any）
 
-返回：
-  告诉代码符号定义所在的精确文件路径和行号。
+⚠️ 注意：query 是符号名，不要写自然语言。
+
+调用示例：
+  { "query": "SessionManager" }
+  { "query": "handleRequest", "scope": "internal/services", "search_type": "function" }
 
 触发词：
   "mpm 搜索", "mpm 定位", "mpm 符号", "mpm find"`),
@@ -129,7 +124,7 @@ func wrapSearch(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerF
 			sb.WriteString(fmt.Sprintf("✅ **最佳匹配** (%s):\n", astResult.MatchType))
 			node := astResult.FoundSymbol
 
-			// canonical_id (唯一标识)
+			// Rust 索引器已存储绝对路径，直接使用
 			sb.WriteString(fmt.Sprintf("- **%s** `%s` @ `%s` L%d-%d\n",
 				node.NodeType, node.Name, node.FilePath, node.LineStart, node.LineEnd))
 			sb.WriteString(fmt.Sprintf("  ID: `%s`\n", node.ID))
@@ -158,6 +153,7 @@ func wrapSearch(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerF
 						sb.WriteString(fmt.Sprintf("    ... (还有 %d 处)\n", len(astResult.RelatedNodes)-5))
 						break
 					}
+					// Rust 索引器已存储绝对路径，直接使用
 					sb.WriteString(fmt.Sprintf("    - [%s] `%s` @ `%s` L%d\n",
 						caller.CallType, caller.Node.Name, caller.Node.FilePath, caller.Node.LineStart))
 				}
@@ -187,6 +183,7 @@ func wrapSearch(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerF
 						sb.WriteString(fmt.Sprintf("  ... (还有 %d 个)\n", len(filteredCandidates)-5))
 						break
 					}
+					// Rust 索引器已存储绝对路径，直接使用
 					sb.WriteString(fmt.Sprintf("- [%s] `%s` @ `%s` (score: %.2f)\n",
 						c.Node.NodeType, c.Node.Name, c.Node.FilePath, c.Score))
 				}

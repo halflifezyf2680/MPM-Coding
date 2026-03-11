@@ -74,6 +74,7 @@ type TaskChainV3 struct {
 	Phases       []Phase `json:"phases"`
 	CurrentPhase string  `json:"current_phase"`
 	ReinitCount  int     `json:"reinit_count,omitempty"` // 重新初始化次数，用于自审升级判断
+	PlanState    string  `json:"plan_state,omitempty"`   // plan 协议专用状态（JSON 序列化）
 }
 
 // ========== 状态流转引擎 ==========

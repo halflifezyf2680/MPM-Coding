@@ -19,6 +19,7 @@ type TaskChainRecord struct {
 	PhasesJSON   string `json:"phases_json"`
 	CurrentPhase string `json:"current_phase"`
 	ReinitCount  int    `json:"reinit_count"`
+	PlanState    string `json:"plan_state"`
 	CreatedAt    string `json:"created_at"`
 	UpdatedAt    string `json:"updated_at"`
 }
@@ -36,8 +37,8 @@ type TaskChainEvent struct {
 
 // SaveTaskChain 保存或更新任务链
 func (m *MemoryLayer) SaveTaskChain(ctx context.Context, rec *TaskChainRecord) error {
-	query := `INSERT INTO task_chains (task_id, description, protocol, status, phases_json, current_phase, reinit_count, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	query := `INSERT INTO task_chains (task_id, description, protocol, status, phases_json, current_phase, reinit_count, plan_state, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(task_id) DO UPDATE SET
 			description=excluded.description,
 			protocol=excluded.protocol,
@@ -45,6 +46,7 @@ func (m *MemoryLayer) SaveTaskChain(ctx context.Context, rec *TaskChainRecord) e
 			phases_json=excluded.phases_json,
 			current_phase=excluded.current_phase,
 			reinit_count=excluded.reinit_count,
+			plan_state=excluded.plan_state,
 			updated_at=excluded.updated_at`
 
 	now := time.Now().Format(time.RFC3339)
@@ -55,19 +57,19 @@ func (m *MemoryLayer) SaveTaskChain(ctx context.Context, rec *TaskChainRecord) e
 
 	_, err := m.dbManager.Exec(query,
 		rec.TaskID, rec.Description, rec.Protocol, rec.Status,
-		rec.PhasesJSON, rec.CurrentPhase, rec.ReinitCount, createdAt, now)
+		rec.PhasesJSON, rec.CurrentPhase, rec.ReinitCount, rec.PlanState, createdAt, now)
 	return err
 }
 
 // LoadTaskChain 加载任务链
 func (m *MemoryLayer) LoadTaskChain(ctx context.Context, taskID string) (*TaskChainRecord, error) {
-	query := `SELECT task_id, description, protocol, status, phases_json, current_phase, reinit_count, created_at, updated_at
+	query := `SELECT task_id, description, protocol, status, phases_json, current_phase, reinit_count, plan_state, created_at, updated_at
 		FROM task_chains WHERE task_id = ?`
 
 	var rec TaskChainRecord
 	err := m.dbManager.QueryRow(query, taskID).Scan(
 		&rec.TaskID, &rec.Description, &rec.Protocol, &rec.Status,
-		&rec.PhasesJSON, &rec.CurrentPhase, &rec.ReinitCount, &rec.CreatedAt, &rec.UpdatedAt)
+		&rec.PhasesJSON, &rec.CurrentPhase, &rec.ReinitCount, &rec.PlanState, &rec.CreatedAt, &rec.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

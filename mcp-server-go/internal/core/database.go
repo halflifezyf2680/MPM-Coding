@@ -246,12 +246,31 @@ func (m *DatabaseManager) healSchema() error {
 		}
 	}
 
-	// 3. 数据迁移（ADD COLUMN，忽略已存在错误）
-	migrations := []string{
-		"ALTER TABLE task_chains ADD COLUMN reinit_count INTEGER DEFAULT 0",
+	// 3. 数据迁移（ADD COLUMN）
+	migrations := []struct {
+		sql  string
+		name string
+	}{
+		{"ALTER TABLE task_chains ADD COLUMN reinit_count INTEGER DEFAULT 0", "reinit_count"},
+		{"ALTER TABLE task_chains ADD COLUMN plan_state TEXT", "plan_state"},
 	}
 	for _, mig := range migrations {
-		m.db.Exec(mig) // 忽略错误（列已存在时会报错，属正常）
+		err := with_sqlite_busy_retry(func() error {
+			_, err := m.db.Exec(mig.sql)
+			return err
+		})
+		if err != nil {
+			// 检查是否是"列已存在"错误（SQLite 返回 "duplicate column name"）
+			errMsg := strings.ToLower(err.Error())
+			if strings.Contains(errMsg, "duplicate column") {
+				fmt.Fprintf(os.Stderr, "[DB][INFO] Column %s already exists, skip\n", mig.name)
+			} else {
+				// 其他错误打印警告但不中断（兼容旧库升级）
+				fmt.Fprintf(os.Stderr, "[DB][WARN] Migration %s failed: %v\n", mig.name, err)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "[DB][INFO] Migration %s applied\n", mig.name)
+		}
 	}
 
 	return nil

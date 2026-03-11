@@ -65,6 +65,7 @@ func persistV3Chain(ctx context.Context, sm *SessionManager, chain *TaskChainV3,
 		PhasesJSON:   phasesJSON,
 		CurrentPhase: chain.CurrentPhase,
 		ReinitCount:  chain.ReinitCount,
+		PlanState:    chain.PlanState,
 	}
 	if err := sm.Memory.SaveTaskChain(ctx, rec); err != nil {
 		return err
@@ -119,6 +120,7 @@ func getOrLoadV3Chain(ctx context.Context, sm *SessionManager, taskID string) (*
 		Phases:       phases,
 		CurrentPhase: rec.CurrentPhase,
 		ReinitCount:  rec.ReinitCount,
+		PlanState:    rec.PlanState,
 	}
 	sm.TaskChainsV3[taskID] = chain
 	return chain, nil
@@ -573,6 +575,7 @@ func finishChainV3(ctx context.Context, sm *SessionManager, taskID string) (*mcp
 
 func renderV3InitResult(chain *TaskChainV3) string {
 	var sb strings.Builder
+
 	sb.WriteString(fmt.Sprintf("协议任务链已初始化: %s\n", chain.TaskID))
 	sb.WriteString(fmt.Sprintf("协议: %s\n", chain.Protocol))
 	sb.WriteString(fmt.Sprintf("阶段数: %d\n\n", len(chain.Phases)))

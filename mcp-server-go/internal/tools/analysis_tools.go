@@ -22,9 +22,8 @@ type ImpactArgs struct {
 
 // ProjectMapArgs 项目地图参数
 type ProjectMapArgs struct {
-	Scope     string `json:"scope" jsonschema:"description=限定范围 (目录或文件路径，留空=整个项目)"`
-	Level     string `json:"level" jsonschema:"default=symbols,enum=structure,enum=symbols,description=视图层级"`
-	CorePaths string `json:"core_paths" jsonschema:"description=核心目录列表 (JSON 数组字符串)"`
+	Scope string `json:"scope" jsonschema:"description=限定范围 (项目内相对目录路径，留空=整个项目)"`
+	Level string `json:"level" jsonschema:"default=symbols,enum=structure,enum=symbols,description=视图层级"`
 }
 
 // FlowTraceArgs 业务流程追踪参数
@@ -71,21 +70,20 @@ func RegisterAnalysisTools(s *server.MCPServer, sm *SessionManager, ai *services
 	), wrapImpact(sm, ai))
 
 	s.AddTool(mcp.NewTool("project_map",
-		mcp.WithDescription(`project_map - 你的项目导航仪 (当不知道代码在哪时)
+		mcp.WithDescription(`project_map - 项目导航仪（不知道代码在哪时用）
 
 用途：
-  【宏观视角】当你迷路了，或者不知道该改哪个文件时，用我。我会给你一张带导航的地图。
+  宏观视角：当你迷路了，或不知道该改哪个文件时，用我获取项目结构地图。
 
-决策指南：
-  level (默认: symbols)
-    - 刚接手/想看架构？ -> "structure" (只看目录树，不看代码)
-    - 找代码/准备修改？ -> "symbols" (列出更详细的函数/类)
-  
-  scope (可选)
-    如果不填，默认看整个项目（可能会很长）。建议填入你感兴趣的目录。
+参数速查：
+  level     symbols|structure（默认 symbols）
+  scope     项目内相对目录（留空=整个项目）
 
-返回：
-  一张 ASCII 格式的项目地图 + 复杂度热力图。
+⚠️ 注意：scope 是相对路径，如 "internal/services"，不要填绝对路径。
+
+调用示例：
+  { "level": "structure" }
+  { "level": "symbols", "scope": "internal/core" }
 
 触发词：
   "mpm 地图", "mpm 结构", "mpm map"`),
@@ -96,24 +94,27 @@ func RegisterAnalysisTools(s *server.MCPServer, sm *SessionManager, ai *services
 		mcp.WithDescription(`flow_trace - 业务流程追踪（文件/函数）
 
 用途：
-	  给 LLM 建立代码阅读主链：先定位入口，再看上游触发，再看下游依赖，按关键节点顺序继续 Read，减少直接通读整文件时的遗漏和误判。
+  给 LLM 建立代码阅读主链：先定位入口，再看上下游依赖，按关键节点顺序阅读。
 
-规则：
-	  - symbol_name / file_path 二选一
-	  - symbol_name 只填函数/类名；文件名或文件基名不要填 symbol_name
-	  - 不确定符号名时先用 code_search
-	  - 拿到 flow 结果后，优先 Read 入口文件和测试锚点，不要直接整文件硬读猜逻辑
+参数速查：
+  入口（二选一，优先 symbol_name）:
+    symbol_name  函数/类名（不含路径）
+    file_path    文件路径（不含函数名）
+  
+  可选:
+    scope        限定目录（大项目建议填）
+    direction    both|forward|backward（默认 both）
+    mode         brief|standard|deep（默认 brief）
+    max_nodes    输出节点上限（默认 40）
 
-输出：
-	  - 入口
-	  - 上游摘要
-	  - 下游摘要
-	  - 关键节点
-	  - 下一步阅读建议
+⚠️ 注意：symbol_name 只填函数/类名，不要填文件路径或基名。
 
-		触发词：
-		  - mpm 流程
-		  - mpm flow`),
+完整调用示例：
+  { "symbol_name": "handleRequest", "scope": "internal/services" }
+  { "file_path": "internal/tools/analysis.go", "direction": "forward" }
+
+触发词：
+  "mpm 流程", "mpm flow"`),
 		mcp.WithInputSchema[FlowTraceArgs](),
 	), wrapFlowTrace(sm, ai))
 }
@@ -951,6 +952,20 @@ func wrapProjectMap(sm *SessionManager, ai *services.ASTIndexer) server.ToolHand
 			return mcp.NewToolResultError("项目未初始化，请先执行 initialize_project"), nil
 		}
 
+		// 🔧 scope 参数验证：检测绝对路径
+		scope := strings.TrimSpace(args.Scope)
+		if scope != "" {
+			// 检测是否为绝对路径（Windows: C:\, D:\ 等；Unix: /开头）
+			if filepath.IsAbs(scope) || (len(scope) >= 2 && scope[1] == ':') {
+				return mcp.NewToolResultError(fmt.Sprintf(
+					"❌ scope 参数应为项目内**相对路径**，而不是绝对路径。\n"+
+						"   你传入的是: `%s`\n"+
+						"   当前项目根: `%s`\n"+
+						"   正确用法示例: scope=\"internal/services\" 或 scope=\"src\"",
+					scope, sm.ProjectRoot)), nil
+			}
+		}
+
 		level := args.Level
 		if level == "" {
 			level = "symbols"
@@ -961,6 +976,15 @@ func wrapProjectMap(sm *SessionManager, ai *services.ASTIndexer) server.ToolHand
 			structureResult, err := ai.StructureProjectWithScope(sm.ProjectRoot, args.Scope)
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("生成结构地图失败: %v", err)), nil
+			}
+
+			// 🔧 空结果检测
+			if structureResult.TotalFiles == 0 {
+				var hint string
+				if scope != "" {
+					hint = fmt.Sprintf("\n\n💡 可能原因：目录 `%s` 在项目中不存在，或路径拼写有误。", scope)
+				}
+				return mcp.NewToolResultText(fmt.Sprintf("🗺️ 项目地图 (Structure)\n\n📊 范围统计: 0 files | 0 symbols%s", hint)), nil
 			}
 
 			type dirCount struct {
@@ -981,8 +1005,8 @@ func wrapProjectMap(sm *SessionManager, ai *services.ASTIndexer) server.ToolHand
 			var sb strings.Builder
 			sb.WriteString("### 🗺️ 项目地图 (Structure)\n\n")
 			sb.WriteString(fmt.Sprintf("**📊 统计**: %d 文件 | %d 目录\n\n", structureResult.TotalFiles, len(dirs)))
-			if strings.TrimSpace(args.Scope) != "" {
-				sb.WriteString(fmt.Sprintf("**🔎 Scope**: `%s`\n\n", args.Scope))
+			if scope != "" {
+				sb.WriteString(fmt.Sprintf("**🔎 Scope**: `%s`\n\n", scope))
 			}
 			sb.WriteString("**📁 目录结构** (按文件数排序):\n")
 
@@ -1015,17 +1039,33 @@ func wrapProjectMap(sm *SessionManager, ai *services.ASTIndexer) server.ToolHand
 		}
 
 		// symbols 视图：优先按范围补录（热点目录），否则按新鲜度检查全量索引
-		if strings.TrimSpace(args.Scope) != "" {
-			_, _ = ai.IndexScope(sm.ProjectRoot, args.Scope)
+		if scope != "" {
+			_, _ = ai.IndexScope(sm.ProjectRoot, scope)
 		} else {
 			_, _ = ai.EnsureFreshIndex(sm.ProjectRoot)
 		}
 
 		// 调用 AST 服务生成数据
 		// 注意：如果 scope 为空，底层会自动处理为整个项目
-		result, err := ai.MapProjectWithScope(sm.ProjectRoot, level, args.Scope)
+		result, err := ai.MapProjectWithScope(sm.ProjectRoot, level, scope)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("生成地图失败: %v", err)), nil
+		}
+
+		// 🔧 空结果检测
+		totalSymbols := 0
+		for _, nodes := range result.Structure {
+			totalSymbols += len(nodes)
+		}
+		if totalSymbols == 0 {
+			var hint string
+			if scope != "" {
+				hint = fmt.Sprintf("\n\n💡 可能原因：\n"+
+					"   1. 目录 `%s` 在项目中不存在，或路径拼写有误\n"+
+					"   2. 该目录下没有可解析的源代码文件\n"+
+					"   3. 项目尚未初始化索引（请先执行 initialize_project）", scope)
+			}
+			return mcp.NewToolResultText(fmt.Sprintf("🗺️ 项目地图 (Symbols)\n\n📊 范围统计: 0 files | 0 symbols%s", hint)), nil
 		}
 
 		// 🆕 收集所有符号名并分析复杂度

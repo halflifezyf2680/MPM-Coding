@@ -32,7 +32,7 @@ type SystemHookArgs struct {
 
 // TaskChainArgs 任务链参数
 type TaskChainArgs struct {
-	Mode        string      `json:"mode" jsonschema:"required,enum=init,enum=resume,enum=start,enum=complete,enum=spawn,enum=complete_sub,enum=finish,enum=status,enum=protocol,description=操作模式"`
+	Mode        string      `json:"mode" jsonschema:"required,enum=init,enum=resume,enum=start,enum=complete,enum=spawn,enum=complete_sub,enum=finish,enum=status,enum=protocol, description=操作模式"`
 	TaskID      string      `json:"task_id" jsonschema:"required,description=任务ID"`
 	Description string      `json:"description" jsonschema:"description=任务描述 (init模式)"`
 	Protocol    string      `json:"protocol" jsonschema:"description=协议名称 (init模式，如 develop/debug/refactor，不传则默认 linear)"`
@@ -88,23 +88,23 @@ func RegisterTaskTools(s *server.MCPServer, sm *SessionManager) {
 		mcp.WithDescription(`task_chain - 任务链执行器 (协议状态机模式)
 
 用途：
-  管理多步任务的流转。采用协议状态机模式，支持门控(gate)、循环(loop)、条件分支和跨会话持久化。
+  管理多步任务的流转。支持门控(gate)、循环(loop)、跨会话持久化。
 
-参数：
-  mode (必填):
-    - init: 初始化协议任务链（需要 task_id + description，可选 protocol 或 phases）
-    - start: 开始一个阶段（需要 task_id + phase_id）
-    - complete: 完成一个阶段（需要 task_id + phase_id + summary，gate 需加 result）
-    - spawn: 在 loop 阶段生成子任务（需要 task_id + phase_id + sub_tasks）
-    - complete_sub: 完成子任务（需要 task_id + phase_id + sub_id + summary，可选 result）
-    - status: 查看任务状态（自动识别协议并从 DB 加载进度）
-    - resume: 恢复/续传任务
-    - finish: 彻底完成并关闭任务链
-    - protocol: 列出可用协议
+参数速查：
+  mode         必填参数
+  ───────────────────────────────────────────────
+  init         task_id, description [, protocol|phases]
+  start        task_id, phase_id
+  complete     task_id, phase_id, summary [, result(gate必填)]
+  spawn        task_id, phase_id, sub_tasks
+  complete_sub task_id, phase_id, sub_id, summary [, result]
+  status       task_id (仅查看状态，不处理输入)
+  resume       task_id
+  finish       task_id
+  protocol     (无需其他参数)
 
 说明：
-  - 默认使用 linear 协议（线性执行）。
-  - 大工程推荐使用 develop 协议，利用 loop 阶段拆解子任务。
+  - 默认 linear 协议；大工程推荐 develop 协议(loop阶段拆解子任务)。
 
 触发词：
   "mpm 任务链", "mpm 续传", "mpm chain"`),

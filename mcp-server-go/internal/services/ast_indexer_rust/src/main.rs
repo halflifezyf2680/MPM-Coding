@@ -588,11 +588,7 @@ fn run_indexer(args: &Args, heartbeat_path: &Path) -> anyhow::Result<()> {
         let meta_counter = meta_counter_worker;
         let skipped_counter = skipped_counter_worker;
         entries_arc.par_iter().for_each(|path| {
-            let path_str = path
-                .strip_prefix(&project_root)
-                .unwrap_or(path)
-                .to_string_lossy()
-                .replace("\\", "/");
+            let path_str = path.to_string_lossy().replace("\\", "/");
 
             // Fast filters: extension whitelist + supported parser
             let ext = path
