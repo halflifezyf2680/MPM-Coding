@@ -1,0 +1,520 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  GO_VERSION: '1.21'
+
+jobs:
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: mcp-server-go/go.sum
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mcp-server-go/internal/services/ast_indexer_rust
+
+      - name: Build Go server
+        working-directory: mcp-server-go
+        run: |
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          $env:CGO_ENABLED = '0'
+          go build -o bin/mpm-go.exe ./cmd/server
+
+      - name: Build Rust AST indexer
+        working-directory: mcp-server-go/internal/services/ast_indexer_rust
+        run: |
+          cargo build --release --target x86_64-pc-windows-msvc
+          Copy-Item target/x86_64-pc-windows-msvc/release/ast_indexer_rust.exe ../../../bin/ast_indexer.exe
+
+      - name: Prepare release package
+        run: |
+          New-Item -ItemType Directory -Force -Path release/mpm-windows-amd64
+          Copy-Item mcp-server-go/bin/mpm-go.exe release/mpm-windows-amd64/
+          Copy-Item mcp-server-go/bin/ast_indexer.exe release/mpm-windows-amd64/
+          Copy-Item README.md release/mpm-windows-amd64/
+          Copy-Item README_ZH.md release/mpm-windows-amd64/
+          Copy-Item README_EN.md release/mpm-windows-amd64/
+          Copy-Item QUICKSTART.md release/mpm-windows-amd64/
+          Copy-Item QUICKSTART_EN.md release/mpm-windows-amd64/
+          Copy-Item mcp-config-example.json release/mpm-windows-amd64/
+          Copy-Item -Recurse docs release/mpm-windows-amd64/
+          Copy-Item -Recurse opencode-agents release/mpm-windows-amd64/
+          Copy-Item -Recurse mcp-server-go/configs release/mpm-windows-amd64/
+          Compress-Archive -Path release/mpm-windows-amd64 -DestinationPath release/mpm-windows-amd64.zip
+
+      - name: Upload artifact (release package)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpm-windows-amd64
+          path: release/mpm-windows-amd64.zip
+
+      - name: Upload artifact (binaries for mcpb)
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-windows-amd64
+          path: |
+            mcp-server-go/bin/mpm-go.exe
+            mcp-server-go/bin/ast_indexer.exe
+          retention-days: 1
+
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: mcp-server-go/go.sum
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mcp-server-go/internal/services/ast_indexer_rust
+
+      - name: Build Go server
+        working-directory: mcp-server-go
+        run: |
+          export GOOS=linux
+          export GOARCH=amd64
+          export CGO_ENABLED=0
+          go build -o bin/mpm-go ./cmd/server
+
+      - name: Build Rust AST indexer
+        working-directory: mcp-server-go/internal/services/ast_indexer_rust
+        run: |
+          cargo build --release --target x86_64-unknown-linux-gnu
+          cp target/x86_64-unknown-linux-gnu/release/ast_indexer_rust ../../../bin/ast_indexer
+
+      - name: Prepare release package
+        run: |
+          mkdir -p release/mpm-linux-amd64
+          cp mcp-server-go/bin/mpm-go release/mpm-linux-amd64/
+          cp mcp-server-go/bin/ast_indexer release/mpm-linux-amd64/
+          cp README.md release/mpm-linux-amd64/
+          cp README_ZH.md release/mpm-linux-amd64/
+          cp README_EN.md release/mpm-linux-amd64/
+          cp QUICKSTART.md release/mpm-linux-amd64/
+          cp QUICKSTART_EN.md release/mpm-linux-amd64/
+          cp mcp-config-example.json release/mpm-linux-amd64/
+          cp -r docs release/mpm-linux-amd64/
+          cp -r opencode-agents release/mpm-linux-amd64/
+          cp -r mcp-server-go/configs release/mpm-linux-amd64/
+          tar -czvf release/mpm-linux-amd64.tar.gz -C release mpm-linux-amd64
+
+      - name: Upload artifact (release package)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpm-linux-amd64
+          path: release/mpm-linux-amd64.tar.gz
+
+      - name: Upload artifact (binaries for mcpb)
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-linux-amd64
+          path: |
+            mcp-server-go/bin/mpm-go
+            mcp-server-go/bin/ast_indexer
+          retention-days: 1
+
+  build-macos:
+    name: Build macOS Universal
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: mcp-server-go/go.sum
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin, aarch64-apple-darwin
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mcp-server-go/internal/services/ast_indexer_rust
+
+      - name: Build Go server (x86_64)
+        working-directory: mcp-server-go
+        run: |
+          export GOOS=darwin
+          export GOARCH=amd64
+          export CGO_ENABLED=0
+          go build -o bin/mpm-go-amd64 ./cmd/server
+
+      - name: Build Go server (arm64)
+        working-directory: mcp-server-go
+        run: |
+          export GOOS=darwin
+          export GOARCH=arm64
+          export CGO_ENABLED=0
+          go build -o bin/mpm-go-arm64 ./cmd/server
+
+      - name: Build Rust AST indexer (x86_64)
+        working-directory: mcp-server-go/internal/services/ast_indexer_rust
+        run: |
+          cargo build --release --target x86_64-apple-darwin
+          cp target/x86_64-apple-darwin/release/ast_indexer_rust ../../../bin/ast_indexer-amd64
+
+      - name: Build Rust AST indexer (arm64)
+        working-directory: mcp-server-go/internal/services/ast_indexer_rust
+        run: |
+          cargo build --release --target aarch64-apple-darwin
+          cp target/aarch64-apple-darwin/release/ast_indexer_rust ../../../bin/ast_indexer-arm64
+
+      - name: Create universal binaries
+        working-directory: mcp-server-go/bin
+        run: |
+          lipo -create mpm-go-amd64 mpm-go-arm64 -output mpm-go
+          lipo -create ast_indexer-amd64 ast_indexer-arm64 -output ast_indexer
+
+      - name: Prepare release package
+        run: |
+          mkdir -p release/mpm-darwin-universal
+          cp mcp-server-go/bin/mpm-go release/mpm-darwin-universal/
+          cp mcp-server-go/bin/ast_indexer release/mpm-darwin-universal/
+          cp README.md release/mpm-darwin-universal/
+          cp README_ZH.md release/mpm-darwin-universal/
+          cp README_EN.md release/mpm-darwin-universal/
+          cp QUICKSTART.md release/mpm-darwin-universal/
+          cp QUICKSTART_EN.md release/mpm-darwin-universal/
+          cp mcp-config-example.json release/mpm-darwin-universal/
+          cp -r docs release/mpm-darwin-universal/
+          cp -r opencode-agents release/mpm-darwin-universal/
+          cp -r mcp-server-go/configs release/mpm-darwin-universal/
+          tar -czvf release/mpm-darwin-universal.tar.gz -C release mpm-darwin-universal
+
+      - name: Upload artifact (release package)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpm-darwin-universal
+          path: release/mpm-darwin-universal.tar.gz
+
+      - name: Upload artifact (binaries for mcpb - darwin amd64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-darwin-amd64
+          path: |
+            mcp-server-go/bin/mpm-go-amd64
+            mcp-server-go/bin/ast_indexer-amd64
+          retention-days: 1
+
+      - name: Upload artifact (binaries for mcpb - darwin arm64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-darwin-arm64
+          path: |
+            mcp-server-go/bin/mpm-go-arm64
+            mcp-server-go/bin/ast_indexer-arm64
+          retention-days: 1
+
+  build-mcpb:
+    name: Build MCPB Bundle
+    needs: [build-windows, build-linux, build-macos]
+    runs-on: macos-latest
+    outputs:
+      mcpb_sha256: ${{ steps.sha256.outputs.hash }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Download all binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binaries-*
+          path: binaries
+          merge-multiple: false
+
+      - name: Assemble MCPB bundle
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION_NUM="${VERSION#v}"
+          export VERSION_NUM
+          
+          # Create mcpb directory structure
+          mkdir -p mcpb-bundle/server/linux
+          mkdir -p mcpb-bundle/server/darwin
+          mkdir -p mcpb-bundle/server/win32
+          
+          # Copy Linux binaries
+          if [ -d "binaries/binaries-linux-amd64" ]; then
+            cp binaries/binaries-linux-amd64/mpm-go mcpb-bundle/server/linux/
+            cp binaries/binaries-linux-amd64/ast_indexer mcpb-bundle/server/linux/
+            chmod +x mcpb-bundle/server/linux/*
+          fi
+          
+          # Build macOS universal binaries (amd64 + arm64)
+          if [ -d "binaries/binaries-darwin-amd64" ] && [ -d "binaries/binaries-darwin-arm64" ]; then
+            lipo -create \
+              -output mcpb-bundle/server/darwin/mpm-go \
+              binaries/binaries-darwin-amd64/mpm-go-amd64 \
+              binaries/binaries-darwin-arm64/mpm-go-arm64
+
+            lipo -create \
+              -output mcpb-bundle/server/darwin/ast_indexer \
+              binaries/binaries-darwin-amd64/ast_indexer-amd64 \
+              binaries/binaries-darwin-arm64/ast_indexer-arm64
+
+            chmod +x mcpb-bundle/server/darwin/*
+          fi
+          
+          # Copy Windows binaries
+          if [ -d "binaries/binaries-windows-amd64" ]; then
+            cp binaries/binaries-windows-amd64/mpm-go.exe mcpb-bundle/server/win32/
+            cp binaries/binaries-windows-amd64/ast_indexer.exe mcpb-bundle/server/win32/
+          fi
+          
+          # Generate manifest.json from template
+          python3 - << 'PY'
+          import json, os
+
+          version = os.environ.get('VERSION_NUM', '').strip() or '0.0.0'
+
+          with open('mcpb/manifest.json', 'r', encoding='utf-8') as f:
+              data = json.load(f)
+
+          data['version'] = version
+
+          with open('mcpb-bundle/manifest.json', 'w', encoding='utf-8') as f:
+              json.dump(data, f, indent=2)
+              f.write('\n')
+          PY
+          
+          # Create .mcpb file (zip format)
+          cd mcpb-bundle
+          zip -r ../mpm-coding-${VERSION}.mcpb .
+          cd ..
+          
+          echo "MCPB_FILE=mpm-coding-${VERSION}.mcpb" >> $GITHUB_ENV
+
+      - name: Calculate SHA256
+        id: sha256
+        run: |
+          HASH=$(shasum -a 256 "${{ env.MCPB_FILE }}" | cut -d' ' -f1)
+          echo "hash=${HASH}" >> $GITHUB_OUTPUT
+          echo "MCPB_SHA256=${HASH}" >> $GITHUB_ENV
+          echo "SHA256: ${HASH}"
+
+      - name: Generate server.json
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION_NUM="${VERSION#v}"
+          REPO_URL="${{ github.server_url }}/${{ github.repository }}"
+          DOWNLOAD_URL="${REPO_URL}/releases/download/${VERSION}/mpm-coding-${VERSION}.mcpb"
+          
+          cat > server.json << SERVERJSON_EOF
+          {
+            "\$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+            "name": "io.github.halflifezyf2680/mpm-coding",
+            "title": "MPM-Coding",
+            "description": "Tool-first MCP: AST nav, impact/flow, task chains, memo/recall.",
+            "version": "${VERSION_NUM}",
+            "packages": [
+              {
+                "registryType": "mcpb",
+                "identifier": "${DOWNLOAD_URL}",
+                "version": "${VERSION_NUM}",
+                "fileSha256": "${{ env.MCPB_SHA256 }}",
+                "transport": {
+                  "type": "stdio"
+                }
+              }
+            ],
+            "repository": {
+              "url": "https://github.com/halflifezyf2680/MPM-Coding",
+              "source": "github"
+            },
+            "websiteUrl": "https://github.com/halflifezyf2680/MPM-Coding"
+          }
+          SERVERJSON_EOF
+          
+          cat server.json
+
+      - name: Upload MCPB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcpb-bundle
+          path: |
+            ${{ env.MCPB_FILE }}
+            server.json
+          retention-days: 1
+
+  release:
+    name: Create Release
+    needs: [build-windows, build-linux, build-macos, build-mcpb]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          # Copy platform packages
+          find artifacts -name "*.zip" -path "*/mpm-*" -exec cp {} release-assets/ \;
+          find artifacts -name "*.tar.gz" -path "*/mpm-*" -exec cp {} release-assets/ \;
+          # Copy mcpb bundle
+          cp artifacts/mcpb-bundle/*.mcpb release-assets/ || true
+          cp artifacts/mcpb-bundle/server.json release-assets/ || true
+          # Generate SHA256SUMS including all assets
+          cd release-assets
+          sha256sum * > SHA256SUMS
+          ls -la
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: MPM-Coding ${{ steps.version.outputs.VERSION }}
+          body: |
+            ## MPM-Coding MCP
+            
+            ### Downloads
+            
+            | Platform | File |
+            |------|------|
+            | Windows x64 | `mpm-windows-amd64.zip` |
+            | Linux x64 | `mpm-linux-amd64.tar.gz` |
+            | macOS Universal | `mpm-darwin-universal.tar.gz` |
+            | MCP Registry bundle | `mpm-coding-${{ steps.version.outputs.VERSION }}.mcpb` |
+            
+            ### Usage
+            
+            1. Download the package for your platform
+            2. Extract to any directory
+            3. Point your MCP client to the `mpm-go` executable
+            
+            ### Registry metadata
+            
+            This release also includes:
+            - `server.json` (MCP Registry metadata)
+            
+            ### Verification
+            
+            ```bash
+            sha256sum -c SHA256SUMS
+            ```
+          draft: false
+          prerelease: false
+          files: release-assets/*
+
+  publish-registry:
+    name: Publish to MCP Registry
+    needs: [build-mcpb, release]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download mcpb bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: mcpb-bundle
+          path: mcpb-bundle
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Wait for release asset availability
+        working-directory: mcpb-bundle
+        run: |
+          ASSET_URL=$(python3 - <<'PY'
+          import json
+          with open('server.json', 'r', encoding='utf-8') as f:
+              data = json.load(f)
+          print(data['packages'][0]['identifier'])
+          PY
+          )
+
+          echo "Waiting for release asset: ${ASSET_URL}"
+          for i in $(seq 1 30); do
+            if curl -fsSLI "${ASSET_URL}" >/dev/null; then
+              echo "Release asset is reachable"
+              exit 0
+            fi
+            echo "Attempt ${i}/30: asset not ready yet, sleeping 10s"
+            sleep 10
+          done
+
+          echo "Release asset did not become reachable in time"
+          exit 1
+
+      - name: Validate server.json
+        working-directory: mcpb-bundle
+        run: |
+          echo "Validating server.json before publish..."
+          ../mcp-publisher validate
+
+      - name: Publish server to MCP Registry
+        working-directory: mcpb-bundle
+        run: |
+          for i in $(seq 1 5); do
+            if ../mcp-publisher publish; then
+              echo "Registry publish succeeded"
+              exit 0
+            fi
+            echo "Publish attempt ${i}/5 failed, sleeping 15s"
+            sleep 15
+          done
+
+          echo "Registry publish failed after retries"
+          exit 1
