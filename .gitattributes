@@ -1,0 +1,2 @@
+# Python 脚本视为第三方代码
+*.py linguist-vendored

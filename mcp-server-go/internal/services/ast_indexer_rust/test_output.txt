@@ -1,0 +1,87 @@
+﻿cargo : warning: unused config key `http.low-speed-timeout` in `C:\Users\Home
+Admin\.cargo\config.toml`
+所在位置 行:1 字符: 1
++ cargo test > test_output.txt 2>&1
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (warning: unused...go\config.tom 
+   l`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+warning: variable does not need to be mutable
+    --> src\main.rs:1130:9
+     |
+1130 |     let mut final_tx = conn.transaction()?;
+     |         ----^^^^^^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` on by default
+
+warning: fields `parent_temp_id` and `text` are never read
+   --> src\main.rs:113:5
+    |
+111 | struct PendingSymbol {
+    |        ------------- fields in this struct
+112 |     temp_id: usize,
+113 |     parent_temp_id: Option<usize>,
+    |     ^^^^^^^^^^^^^^
+...
+120 |     text: String,
+    |     ^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: function `calculate_hash` is never used
+   --> src\main.rs:419:4
+    |
+419 | fn calculate_hash(path: &Path) -> std::io::Result<String> {
+    |    ^^^^^^^^^^^^^^
+
+warning: function `progressive_search` is never used
+    --> src\main.rs:1246:4
+     |
+1246 | fn progressive_search(conn: &Connection, query_str: &str) -> Option<(N
+ode, String)> {
+     |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `prefix_suffix_match` is never used
+    --> src\main.rs:1367:4
+     |
+1367 | fn prefix_suffix_match(conn: &Connection, query: &str) -> Option<Node>
+ {
+     |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `substring_match` is never used
+    --> src\main.rs:1392:4
+     |
+1392 | fn substring_match(conn: &Connection, query: &str) -> Option<Node> {
+     |    ^^^^^^^^^^^^^^^
+
+warning: function `levenshtein_match` is never used
+    --> src\main.rs:1416:4
+     |
+1416 | fn levenshtein_match(conn: &Connection, query: &str, max_distance: usi
+ze) -> Option<Node> {
+     |    ^^^^^^^^^^^^^^^^^
+
+warning: function `stem_match` is never used
+    --> src\main.rs:1457:4
+     |
+1457 | fn stem_match(conn: &Connection, query: &str) -> Option<Node> {
+     |    ^^^^^^^^^^
+
+warning: `ast_indexer_rust` (bin "ast_indexer_rust" test) generated 8 warning
+s (run `cargo fix --bin "ast_indexer_rust" --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running unittests src\main.rs (target\debug\deps\ast_indexer_rust-4b3a19
+4d2a739a6f.exe)
+
+running 5 tests
+test tests::html_symbol_type_assigns_semantic_roles ... ok
+test tests::html_query_resolves_semantic_symbol_types ... ok
+test tests::html_query_extracts_structural_symbols ... ok
+test tests::parser_setup_registers_html_extensions ... ok
+test tests::css_query_extracts_selectors_and_keyframes ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.67s
+

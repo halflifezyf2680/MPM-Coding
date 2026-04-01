@@ -1,0 +1,83 @@
+# Build
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# MPM Data (本地数据库，不提交)
+.mpm-data/
+.mcp-data/
+
+# Rust
+target/
+Cargo.lock
+
+# Go
+vendor/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+*.tmp
+*.log
+*.bak
+.tmp-tests/
+
+# Local build/release outputs (do not commit)
+release/
+release-assets/
+binaries/
+mcpb-bundle/
+*.mcpb
+SHA256SUMS
+
+# Tool-generated temp dirs/files (do not commit)
+**/.tmp-tests/
+mcp-server-go/internal/tools/.tmp-tests/
+
+# Tool-generated stray files (do not commit)
+mcp-server-go/_MPM_PROJECT_RULES.md
+_MPM_PROJECT_RULES.md
+
+# Local-only helper scripts (do not commit)
+scripts/publish-local.ps1
+scripts/deploy-local-binaries.ps1
+
+# Local-only docs (do not publish)
+docs/TASK_CHAIN_V3_FLOW.md
+docs/wiki/
+PROJECT_EVALUATION_REPORT*.md
+
+# Dev logs (do not commit)
+dev-log.md
+dev-log-archive/
+
+# Tool-generated files (do not commit)
+visualize_history.py
+mcp-server-go/internal/tools/analysis_tools_sideeffects_test.go
+
+# MCP Registry local files (do not commit)
+.mcpregistry_*
+mcp-publisher
+mcp-publisher.tar.gz
+server.json
+nul
+
+# Local and AI tool states
+.claude/
+CLAUDE.md
+TestMD/
+chain.md
+docs/TOOL_OUTPUT_GUIDED_WORKFLOW.md
