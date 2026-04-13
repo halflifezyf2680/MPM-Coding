@@ -2,8 +2,8 @@
   "manifest_version": "0.3",
   "name": "mpm-coding",
   "display_name": "MPM-Coding",
-  "version": "2.0.1",
-  "description": "Local MCP server for engineering workflows: AST-based code navigation, impact/flow analysis, task orchestration, and memo/recall memory.",
+  "version": "2.3.5",
+  "description": "AI coding harness: AST-powered code navigation, impact analysis, phased task chains, and cross-session memory.",
   "author": {
     "name": "halflifezyf2680"
   },

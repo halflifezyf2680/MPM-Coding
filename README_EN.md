@@ -1,6 +1,6 @@
-# MPM-Coding MCP
+# MPM-Coding
 
-> **Turning AI Coding from "Demos" into "Delivery"**
+> **MCP tools for AI coding that actually ships.**
 
 English | [中文](README.md)
 
@@ -8,181 +8,195 @@ English | [中文](README.md)
 
 ---
 
-## AI Coding That Survives Reality
+## The Problem
 
-AI coding is fun until you try it on a real repo:
+The fun of AI coding can be quickly destroyed by real projects:
 
-- The model forgets context ("where is the code?")
-- It edits based on guesses ("this should be fine")
-- Long tasks drift, skip steps, or die halfway
-- Later you cannot answer "what changed and why?"
+```
+"where is that function again?"        → guesses file paths
+"this change should be fine"           → no impact analysis
+12-step task dies at step 7            → no checkpoint, no resume
+"why did we change this last week?"    → nobody remembers
+```
 
-MPM is not trying to make the LLM "smarter" or "better at chatting". That is the model's job.
-MPM makes the work *finishable*: locate first (`code_search`), check impact (`code_impact`), run long tasks as a phased chain with gates (`task_chain`), then store the why (`memo`).
-
-In AI coding, "smart" usually means "steady": solves real problems, leaves a trail, can resume, with fewer guesses and fewer misses.
-
-Even if your git history gets messy (or you rebuild the repo), the reasoning trail can still be there: `memo` stores the why in `.mpm-data/`.
-Back up `.mpm-data/` and you can usually reconstruct faster (often cleaner) with AI.
+MPM doesn't make the model smarter. MPM makes the work **finishable**.
 
 ---
 
-## What is MPM?
+## How It Works
 
-MPM is a set of MCP tools + rules for long-running, high-signal AI coding.
-Initialize once, then paste `_MPM_PROJECT_RULES.md` into your client's system rules.
-
-### 🚀 30-Second Start (Do This First)
-
-```text
-1) initialize_project
-2) Paste _MPM_PROJECT_RULES.md into client system rules
-3) Ask directly: "Help me fix XXX and follow the rules"
+```
+ locate          analyze          execute          record
+┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
+│          │   │          │   │          │   │          │
+│  code_   │──▶│  code_   │──▶│  task_   │──▶│   memo   │
+│  search  │   │  impact  │   │  chain   │   │          │
+│          │   │          │   │          │   │          │
+└──────────┘   └──────────┘   └──────────┘   └──────────┘
+  AST-powered     call graph      phased         SSOT
+  symbol loc.     risk check      w/ gates       change log
 ```
 
-If you do this first, you can start effectively without learning every tool in advance.
-
-**Core Differentiators**:
-
-| Traditional Approach | MPM Approach |
-|---------------------|--------------|
-| `grep "some symbol"` → 500 results | `code_search("some symbol")` → exact file:line |
-| "I think this change should work" | `code_impact` → full call chain analysis |
-| Starting from scratch every session | `system_recall` → cross-session memory |
-| Long tasks drift or stop halfway | `task_chain` → long-running task chain with gates |
-
-### Practical Workflow: One Complete Loop (Example)
-
-Below is a copy-paste ready example. Paste it into any MCP client to run.
-
-#### Standard Mode (Recommended for Beginners)
-
-```text
-Read _MPM_PROJECT_RULES.md and follow it.
-
-Task: Fix <the issue you actually have>.
-Requirements:
-1. Locate the code first
-2. Analyze impact scope
-3. Implement the fix
-4. Record the change reason
-```
-
-The AI will automatically execute: `initialize_project` → `code_search` → `code_impact` → modify code → `memo` to record.
-
-#### Strict Mode (With Explicit Gates)
-
-```text
-Read _MPM_PROJECT_RULES.md and follow it.
-
-Use task_chain to complete the following task:
-Task: Fix <the issue you actually have>.
-
-Phase requirements:
-1. Locate phase: Use code_search to find the target function
-2. Analyze phase: Use code_impact to evaluate impact scope
-3. Implement phase: Fix and pass tests
-4. Wrap-up phase: Use memo to record change reason
-
-Report results after each phase and wait for confirmation before proceeding.
-```
-
-#### Closed-Loop Checklist
-
-- **Understand**: `project_map` for structure, `flow_trace` for main chains
-- **Locate**: `code_search` to pinpoint symbols
-- **Assess**: `code_impact` to analyze call chain impact
-- **Change**: Write code, fix compilation errors
-- **Verify**: Run tests to confirm functionality
-- **Record**: `memo` to archive change rationale
-
-> ⚠️ **Data Hygiene**: The `.mpm-data/` directory stores local data and should not be committed to version control.
->
-> **Project Binding**: `initialize_project` creates `.mpm-data/project_config.json` as an anchor. Future sessions auto-bind to this project root. If multiple anchors are found under a workspace aggregator folder, MPM refuses to guess and requires explicit `project_root`.
+Every modification follows: **find → assess → change → record**.
+No guessing. No blind edits. No missing trail.
 
 ---
 
-## What You Get
+## Toolkit
 
-- Find the right code faster (`code_search`, `project_map`, `flow_trace`)
-- Change with fewer surprises (`code_impact`)
-- Run long tasks with checkpoints (`task_chain`, `system_hook`)
-- Keep a usable change log (`memo`, `system_recall`)
+### Navigation
+
+| Tool | What it does |
+|------|-------------|
+| `code_search` | Find a symbol's exact location. Not grep — AST-precise. |
+| `project_map` | See directory structure + symbol inventory at a glance. |
+| `flow_trace` | Trace a function's call chain — understand the main path before touching code. |
+
+### Safety
+
+| Tool | What it does |
+|------|-------------|
+| `code_impact` | "Who calls this?" or "What does this call?" — know the blast radius before editing. |
+
+### Execution
+
+| Tool | What it does |
+|------|-------------|
+| `task_chain` | Long task? Split into phases with gate checks. Survives session restarts. |
+| `system_hook` | Blocked? Hang a hook, come back later when conditions are met. |
+
+### Memory
+
+| Tool | What it does |
+|------|-------------|
+| `memo` | Record *why* you changed something. Persists across sessions. |
+| `system_recall` | "Did we fix something like this before?" — search history. |
+| `known_facts` | Store hard-won rules so the AI doesn't repeat mistakes. |
+
+### System
+
+| Tool | What it does |
+|------|-------------|
+| `initialize_project` | Bootstrap AST index + generate project rules. One-time setup. |
+| `index_status` | Monitor background index build progress. |
+| `persona` | Switch AI personality for different contexts. |
 
 ---
 
 ## Quick Start
 
-### 1. Build
-
-```powershell
+```bash
+# Build
 # Windows
 powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
-
 # Linux/macOS
 ./scripts/build-unix.sh
 ```
 
-### 2. Configure MCP
-
-Point to the build output: `mcp-server-go/bin/mpm-go(.exe)`
-
-### 3. Start Using
+Point your MCP client at `mcp-server-go/bin/mpm-go(.exe)`, then:
 
 ```text
-Initialize project
-Help me locate and fix <your issue>, and follow _MPM_PROJECT_RULES.md
+1) initialize_project
+2) Paste _MPM_PROJECT_RULES.md into your client's system rules
+3) Tell it what to do — the AI will follow the protocol automatically
 ```
 
-After initialization, MPM generates `_MPM_PROJECT_RULES.md` automatically. Treat it as the project's operating playbook:
+That's it. The AI handles the tool orchestration. You make the decisions.
 
-- It tells the LLM naming conventions, tool order, and hard constraints
-- You can start effectively without learning every tool detail first
-- In a new chat, ask the LLM to read this file first to reduce mistakes
+---
 
-Recommended first prompt: `Read _MPM_PROJECT_RULES.md and follow it`
+## Usage Example
 
-### 4. Release Packaging (Fixed Directory)
+Paste this into your MCP client:
 
-```powershell
-python package_product.py
+```text
+Read _MPM_PROJECT_RULES.md and follow it strictly.
+
+Task: Fix the null pointer crash in UserService.getProfile.
+Requirements:
+1. Use code_search to locate the function
+2. Use code_impact to check who calls it
+3. Fix the bug
+4. Use memo to record why this change was needed
 ```
 
-Notes:
+The AI will execute: `initialize_project` → `code_search` → `code_impact` → edit → `memo`.
 
-- Output directory is fixed: `mpm-release/MyProjectManager`
-- Each run removes previous `mpm-release` first, then rebuilds clean package contents
+---
 
+## Installation
+
+### From Release
+
+Download from [Releases](https://github.com/halflifezyf2680/MPM-Coding/releases):
+
+| Platform | File |
+|----------|------|
+| Windows x64 | `mpm-windows-amd64.zip` |
+| Linux x64 | `mpm-linux-amd64.tar.gz` |
+| macOS Universal | `mpm-darwin-universal.tar.gz` |
+
+Unzip. Point your MCP client at `mpm-go`. Done.
+
+### From MCP Registry
+
+Available on the [MCP Registry](https://modelcontextprotocol.io) as `io.github.halflifezyf2680/mpm-coding`.
+
+### From Source
+
+```bash
+git clone https://github.com/halflifezyf2680/MPM-Coding.git
+cd MPM-Coding
+powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1  # or ./scripts/build-unix.sh
+```
 
 ---
 
 ## Documentation
 
-- **[MANUAL_EN.md](./docs/MANUAL_EN.md)** - English manual
-- **[MANUAL.md](./docs/MANUAL.md)** - 中文完整手册
-
-
----
-
-## Common Search Questions
-
-- `How to do impact analysis in MCP?` -> use `code_impact`
-- `How to make LLM understand business logic flow?` -> use `flow_trace`
-- `How to quickly understand a module/area in the system?` -> use `project_map` (structure) + `flow_trace` (main chains)
-- `How to monitor indexing progress for large repositories?` -> use `index_status`
-- `How to force full indexing?` -> `initialize_project(force_full_index=true)`
-
-See [MANUAL_EN.md](./docs/MANUAL_EN.md) for detailed English examples.
+| Doc | Description |
+|-----|-------------|
+| [QUICKSTART_EN.md](./QUICKSTART_EN.md) | 5-minute setup guide |
+| [docs/MANUAL_EN.md](./docs/MANUAL_EN.md) | Full manual — all tools, patterns, and case studies |
+| [README.md](./README.md) | 中文版 |
+| [QUICKSTART.md](./QUICKSTART.md) | 中文快速上手 |
+| [docs/MANUAL.md](./docs/MANUAL.md) | 中文完整手册 |
 
 ---
 
-## Contact
+## Architecture
 
-- Support: GitHub Issues
-- Email: `halflifezyf2680@gmail.com`
+```
+mcp-server-go/
+├── cmd/server/main.go              # Entry point (StdIO MCP Server)
+├── internal/
+│   ├── tools/    (14 files)        # MCP tool implementations
+│   ├── core/     (6 files)         # Data layer — SQLite + MemoryLayer (SSOT)
+│   └── services/                    # AST indexer (Tree-sitter, multi-language)
+└── configs/                         # Default configurations
+```
+
+- **Go 1.21+** — zero CGO, pure `modernc.org/sqlite`
+- **Tree-sitter** — Rust AST indexer for Go, Rust, Python, TS/JS, Java, C/C++, HTML, CSS
+- **SQLite** — embedded storage in `.mpm-data/` (never committed)
+
+---
+
+## FAQ
+
+| Question | Tool |
+|----------|------|
+| How to find a function/class? | `code_search` |
+| How to check impact before editing? | `code_impact` |
+| How to understand a module's call chain? | `flow_trace` |
+| How to run a long task reliably? | `task_chain` |
+| How to check index build progress? | `index_status` |
+| How to force full re-index? | `initialize_project(force_full_index=true)` |
+
+Full manual: [docs/MANUAL_EN.md](./docs/MANUAL_EN.md)
 
 ---
 
 ## License
 
-MIT License
+MIT
