@@ -178,7 +178,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1  # 或 ./scri
 
 ## 架构
 
-![MPM-Coding Architecture](./docs/architecture.png)
+[查看交互式架构图](https://halflifezyf2680.github.io/MPM-Coding/architecture.html)
 
 ```
 mcp-server-go/

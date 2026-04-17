@@ -58,7 +58,7 @@ The **output** of these tools constitutes context cleaning — injecting only de
 
 This is **attention convergence**: from "guessing files" to "querying symbols", from "reading entire files" to "following call chains". What's truly valuable is the effect these results produce once injected into the AI's context.
 
-![MPM-Coding Architecture](architecture.png)
+[View interactive architecture diagram](https://halflifezyf2680.github.io/MPM-Coding/architecture.html)
 
 ---
 
