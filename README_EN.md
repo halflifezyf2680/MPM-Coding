@@ -50,7 +50,7 @@ MPM solves a different problem: **how to make the AI understand code structure w
 
 `code_search` returns the exact location of a symbol definition — not a pile of grep results. `code_impact` returns the full call chain panorama — not making the AI guess file by file who calls what. `flow_trace` returns the main business logic chain — not a directory listing. The **output** of these tools constitutes a context cleaning — injecting only deterministic structural information, filtering out the noise.
 
-This is **attention convergence**: the AI no longer needs to blindly search through oceans of code. Tool outputs have already focused its attention on the few symbols and relationships that matter. Tree-sitter is just the implementation — it's fast, lightweight, and doesn't need a compilation environment, making it suitable as an MCP tool that returns results in real-time. What's truly valuable is the effect these results produce once injected into the AI's context.
+This is **attention convergence**: the AI no longer needs to blindly search through oceans of code. Tool outputs have already focused its attention on the few symbols and relationships that matter. What's truly valuable isn't which parser is used under the hood — it's the effect these results produce once injected into the AI's context.
 
 ---
 
@@ -214,3 +214,5 @@ Full manual: [docs/MANUAL_EN.md](./docs/MANUAL_EN.md)
 ## License
 
 MIT
+
+This project uses [tree-sitter](https://github.com/tree-sitter/tree-sitter) (MIT License) for AST parsing.

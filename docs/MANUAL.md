@@ -41,6 +41,25 @@
 
 支持的语言：Go、Rust、Python、TS/JS、Java、C/C++、HTML、CSS。
 
+### 1.3 上下文清洗与注意力收敛
+
+AI 编程的核心瓶颈不是模型能力，是**上下文窗口里的垃圾太多**。
+
+一个 50 文件的项目，AI 如果靠读文件来理解代码，它要么全读（token 爆炸），要么猜着读（遗漏关键依赖）。两种都是灾难。
+
+MPM 的工具不是给 AI 做 IDE 的事——补全、跳转、重命名，AI 客户端自己就能做。MPM 解决的是另一个问题：**如何用最少的 token 让 AI 精确理解代码结构**。
+
+- `code_search` 返回的是符号定义的精确位置，不是一堆 grep 结果
+- `code_impact` 返回的是调用链全景，不是让 AI 一个文件一个文件地猜谁调了它
+- `flow_trace` 返回的是业务逻辑主链路，不是目录列表
+- `project_map` 返回的是结构化符号清单，不是 `ls` 输出
+
+这些工具的 **output** 本身就构成了对上下文的清洗——只注入确定性的结构信息，把噪声过滤掉。AI 不再需要在大片代码中盲目搜索，工具的输出已经把它的注意力聚焦到必须关注的那几个符号和关系上。
+
+这就是**注意力收敛**：从 "猜文件" 变成 "查符号"，从 "读全文件" 变成 "看调用链"，真正有价值的是这些结果被注入上下文后产生的作用。
+
+![MPM-Coding Architecture](architecture.png)
+
 ---
 
 ## 2. 工具参考
@@ -218,6 +237,8 @@ task_chain(mode="complete", task_id="AUTH", phase_id="verify_gate", result="pass
 task_chain(mode="complete", task_id="AUTH", phase_id="finalize", summary="完成")
 ```
 
+**实战场景**：规划好完整的任务体系后，让能力强的模型自己跑。睡前启动一个 `develop` 协议链——从实现、验证到收尾，每个阶段有 gate 门控把关，失败自动重试，跑偏自己拉回来。第二天醒来 `task_chain(mode="status")` 看结果。网络问题导致会话断了？没事 `resume` 从断点续传，不丢失进度。这就是 task_chain 的真正价值：**让 AI 能独立完成多步长任务，人只做检查**。
+
 ---
 
 ### 2.8 system_hook
@@ -233,6 +254,8 @@ task_chain(mode="complete", task_id="AUTH", phase_id="finalize", summary="完成
 | `release` | 释放钩子 | `hook_id`, `result_summary` |
 
 **priority**：`high` / `medium` / `low`
+
+**实战场景**：和 AI 讨论问题的过程中，发现 5 个需要处理但当下不能立刻动手的点。逐个 `create` 挂起来，继续讨论下一个话题。继续发现新问题，继续`create` 挂起来。讨论完了，批量 `release` 逐个闭合。不用记在脑子里，不用怕遗漏。**system_hook 是决策神器**——它让你和 AI 的对话从"边聊边忘"变成"边聊边记，集中处理"。
 
 ---
 
@@ -260,7 +283,7 @@ memo(items=[{
 }])
 ```
 
-数据同时写入 SQLite (`mcp_memory.db`) 和 Markdown (`dev-log.md`)。
+数据写入 SQLite (`mcp_memory.db`) 顺便用程序刷新 Markdown (`dev-log.md`)。
 
 ---
 

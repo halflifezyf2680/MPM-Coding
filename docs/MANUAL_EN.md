@@ -41,6 +41,25 @@
 
 Supported languages: Go, Rust, Python, TS/JS, Java, C/C++, HTML, CSS.
 
+### 1.3 Context Cleaning & Attention Convergence
+
+The core bottleneck in AI coding isn't model capability — it's **too much garbage in the context window**.
+
+In a 50-file project, if the AI relies on reading files to understand code, it either reads everything (token explosion) or guesses which files matter (misses critical dependencies). Both are disasters.
+
+MPM tools don't do IDE things — completions, go-to-definition, rename. AI clients already handle those. MPM solves a different problem: **how to make the AI understand code structure with minimal tokens**.
+
+- `code_search` returns the exact location of a symbol definition — not a pile of grep results
+- `code_impact` returns the full call chain panorama — not making the AI guess file by file
+- `flow_trace` returns the main business logic chain — not a directory listing
+- `project_map` returns a structured symbol inventory — not `ls` output
+
+The **output** of these tools constitutes context cleaning — injecting only deterministic structural information, filtering out noise. The AI no longer needs to blindly search through oceans of code. Tool outputs have already focused its attention on the few symbols and relationships that matter.
+
+This is **attention convergence**: from "guessing files" to "querying symbols", from "reading entire files" to "following call chains". What's truly valuable is the effect these results produce once injected into the AI's context.
+
+![MPM-Coding Architecture](architecture.png)
+
 ---
 
 ## 2. Tool Reference
@@ -218,6 +237,8 @@ task_chain(mode="complete", task_id="AUTH", phase_id="verify_gate", result="pass
 task_chain(mode="complete", task_id="AUTH", phase_id="finalize", summary="Done")
 ```
 
+**Real-world scenario**: Plan the full task chain upfront, then let a capable model run on its own. Start a `develop` protocol chain before bed — from implementation through verification to finalization, each phase has a gate that blocks on failure, auto-retries, and self-corrects when drifting off track. Next morning, check results with `task_chain(mode="status")`. Session broke due to network? No problem — `resume` picks up from the checkpoint, no progress lost. This is task_chain's true value: **let AI handle multi-step tasks independently, humans only inspect results**.
+
 ---
 
 ### 2.8 system_hook
@@ -233,6 +254,8 @@ Suspend/resume mechanism for blocked tasks.
 | `release` | Release hook | `hook_id`, `result_summary` |
 
 **Priority**: `high` / `medium` / `low`
+
+**Real-world scenario**: While discussing a problem with AI, you spot 5 things that need handling but can't act on right now. `create` a hook for each one and keep the conversation going. Keep finding new issues? Keep `create`-ing hooks. When the discussion wraps up, batch `release` them one by one. Nothing to hold in your head, nothing to forget. **system_hook is the ultimate decision-making tool** — it turns "discuss and forget" into "discuss, record, and batch-process".
 
 ---
 

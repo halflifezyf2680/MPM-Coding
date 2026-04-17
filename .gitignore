@@ -57,7 +57,6 @@ scripts/deploy-local-binaries.ps1
 
 # Local-only docs (do not publish)
 docs/TASK_CHAIN_V3_FLOW.md
-docs/wiki/
 PROJECT_EVALUATION_REPORT*.md
 
 # Dev logs (do not commit)

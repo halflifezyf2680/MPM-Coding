@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MPM-Coding 架构图</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    /* ===== 深色主题 (默认) ===== */
+    :root {
+      --bg: #050505;
+      --surface: rgba(255,255,255,0.03);
+      --surface-border: rgba(255,255,255,0.08);
+      --text-1: #ffffff;
+      --text-2: #a0a0a0;
+      --text-3: #666666;
+      --card-bg: rgba(255,255,255,0.04);
+      --card-border: rgba(255,255,255,0.08);
+      --card-text: #a0a0a0;
+      --footer: #555555;
+      --toggle-bg: rgba(255,255,255,0.06);
+      --toggle-border: rgba(255,255,255,0.12);
+      --toggle-text: #888888;
+      --blur: 16px;
+    }
+
+    /* ===== 浅色主题 ===== */
+    [data-theme="light"] {
+      --bg: #f8f8f8;
+      --surface: rgba(255,255,255,0.6);
+      --surface-border: rgba(0,0,0,0.08);
+      --text-1: #111111;
+      --text-2: #555555;
+      --text-3: #999999;
+      --card-bg: rgba(255,255,255,0.55);
+      --card-border: rgba(0,0,0,0.08);
+      --card-text: #444444;
+      --footer: #999999;
+      --toggle-bg: rgba(0,0,0,0.04);
+      --toggle-border: rgba(0,0,0,0.1);
+      --toggle-text: #555555;
+      --blur: 20px;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, system-ui, sans-serif;
+      background: var(--bg);
+      min-height: 100vh;
+      padding: 2rem;
+      color: var(--text-1);
+      transition: background 0.3s, color 0.3s;
+      -webkit-font-smoothing: antialiased;
+      font-feature-settings: "kern" 1;
+    }
+
+    .container { max-width: 1280px; margin: 0 auto; }
+
+    .header {
+      margin-bottom: 2rem;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .header-left { display: flex; flex-direction: column; }
+    .header-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.375rem; }
+
+    .pulse-dot {
+      width: 10px; height: 10px; background: var(--text-1);
+      border-radius: 50%; animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 500;
+      letter-spacing: -0.025em;
+      color: var(--text-1);
+    }
+
+    .subtitle {
+      color: var(--text-2);
+      font-size: 0.8125rem;
+      margin-left: 1.625rem;
+      letter-spacing: -0.01em;
+      font-weight: 400;
+    }
+
+    #theme-btn {
+      background: var(--toggle-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--toggle-border);
+      color: var(--toggle-text);
+      padding: 7px 18px;
+      border-radius: 50px;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.8125rem;
+      font-weight: 400;
+      letter-spacing: -0.01em;
+      transition: background 0.2s, border-color 0.2s;
+      white-space: nowrap;
+    }
+    #theme-btn:hover { background: var(--surface-border); }
+
+    .diagram-container {
+      background: var(--surface);
+      backdrop-filter: blur(var(--blur));
+      -webkit-backdrop-filter: blur(var(--blur));
+      border: 1px solid var(--surface-border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      overflow-x: auto;
+      transition: background 0.3s, border-color 0.3s;
+    }
+
+    svg { width: 100%; display: block; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+
+    .card {
+      background: var(--card-bg);
+      backdrop-filter: blur(var(--blur));
+      -webkit-backdrop-filter: blur(var(--blur));
+      border-radius: 10px;
+      border: 1px solid var(--card-border);
+      padding: 1.25rem;
+      transition: background 0.3s, border-color 0.3s;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan { background: #0ea5e9; }
+    .card-dot.emerald { background: #10b981; }
+    .card-dot.violet { background: #8b5cf6; }
+
+    .card h3 {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text-1);
+      letter-spacing: -0.01em;
+    }
+
+    .card ul {
+      list-style: none;
+      color: var(--card-text);
+      font-size: 0.8125rem;
+      line-height: 1.55;
+      letter-spacing: -0.01em;
+    }
+
+    .card li { margin-bottom: 0.25rem; }
+
+    .footer {
+      text-align: center;
+      margin-top: 1.5rem;
+      color: var(--footer);
+      font-size: 0.75rem;
+      letter-spacing: -0.01em;
+    }
+
+    @media (max-width: 768px) {
+      .cards { grid-template-columns: 1fr; }
+      body { padding: 1rem; }
+    }
+
+    /* ===== SVG 浅色主题覆盖 ===== */
+    [data-theme="light"] svg rect[fill="rgba(255,255,255,0.03)"] { fill: rgba(255,255,255,0.5); }
+    [data-theme="light"] svg rect[fill="rgba(255,255,255,0.05)"] { fill: rgba(255,255,255,0.55); }
+
+    [data-theme="light"] svg text[fill="#ffffff"],
+    [data-theme="light"] svg tspan[fill="#ffffff"] { fill: #111111; }
+    [data-theme="light"] svg text[fill="#a0a0a0"],
+    [data-theme="light"] svg tspan[fill="#a0a0a0"] { fill: #555555; }
+    [data-theme="light"] svg text[fill="#666666"],
+    [data-theme="light"] svg tspan[fill="#666666"] { fill: #999999; }
+
+    [data-theme="light"] svg rect[stroke="rgba(255,255,255,0.1)"] { stroke: rgba(0,0,0,0.08); }
+    [data-theme="light"] svg rect[stroke="rgba(255,255,255,0.06)"] { stroke: rgba(0,0,0,0.06); }
+    [data-theme="light"] svg rect[stroke="rgba(255,255,255,0.12)"] { stroke: rgba(0,0,0,0.1); }
+    [data-theme="light"] svg line[stroke="#555555"] { stroke: #bbbbbb; }
+    [data-theme="light"] svg path[stroke="#555555"] { stroke: #bbbbbb; }
+
+    [data-theme="light"] svg rect[stroke="#0ea5e9"] { stroke: #0ea5e9; stroke-opacity: 0.35; }
+    [data-theme="light"] svg rect[stroke="#10b981"] { stroke: #10b981; stroke-opacity: 0.35; }
+    [data-theme="light"] svg rect[stroke="#8b5cf6"] { stroke: #8b5cf6; stroke-opacity: 0.35; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <div class="header-left">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>MPM-Coding Architecture</h1>
+      </div>
+      <p class="subtitle">确定性代码智能 · 工程记忆系统 · 自主任务引擎</p>
+    </div>
+    <button id="theme-btn" onclick="toggleTheme()">Light</button>
+  </div>
+
+  <div class="diagram-container">
+    <svg viewBox="0 0 1280 960" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="a-cy" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0,8 3,0 6" fill="#0ea5e9"/></marker>
+        <marker id="a-em" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0,8 3,0 6" fill="#10b981"/></marker>
+        <marker id="a-vi" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0,8 3,0 6" fill="#8b5cf6"/></marker>
+        <marker id="a-sl" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0,8 3,0 6" fill="#555555"/></marker>
+
+        <linearGradient id="g-cyan" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#0ea5e9" stop-opacity="0.08"/>
+          <stop offset="100%" stop-color="#0ea5e9" stop-opacity="0.02"/>
+        </linearGradient>
+        <linearGradient id="g-emerald" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#10b981" stop-opacity="0.08"/>
+          <stop offset="100%" stop-color="#10b981" stop-opacity="0.02"/>
+        </linearGradient>
+        <linearGradient id="g-violet" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.08"/>
+          <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.02"/>
+        </linearGradient>
+      </defs>
+
+      <!-- ============ MCP 连线 ============ -->
+      <line x1="640" y1="74" x2="220" y2="118" stroke="#0ea5e9" stroke-width="1" marker-end="url(#a-cy)"/>
+      <line x1="640" y1="74" x2="640" y2="118" stroke="#10b981" stroke-width="1" marker-end="url(#a-em)"/>
+      <line x1="640" y1="74" x2="1060" y2="118" stroke="#8b5cf6" stroke-width="1" marker-end="url(#a-vi)"/>
+
+      <!-- 柱间连接 -->
+      <line x1="825" y1="290" x2="870" y2="290" stroke="#555555" stroke-width="0.8" stroke-dasharray="3,3" marker-end="url(#a-sl)"/>
+      <text x="847" y="283" fill="#666666" font-family="Inter,sans-serif" font-size="11" text-anchor="middle">事件</text>
+      <path d="M870,390 Q845,370 825,350" fill="none" stroke="#555555" stroke-width="0.8" stroke-dasharray="3,3" marker-end="url(#a-sl)"/>
+      <text x="852" y="380" fill="#666666" font-family="Inter,sans-serif" font-size="11" text-anchor="middle">召回</text>
+
+      <!-- ============ 客户端 ============ -->
+      <rect x="410" y="10" width="460" height="64" rx="8" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
+      <text x="640" y="34" fill="#ffffff" font-family="Inter,sans-serif" font-size="17" font-weight="600" text-anchor="middle" letter-spacing="-0.02em">AI 智能体 / IDE</text>
+      <text x="640" y="54" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" text-anchor="middle" letter-spacing="-0.01em">Claude Code · Cursor · VS Code · 任意 MCP 客户端</text>
+      <text x="640" y="70" fill="#666666" font-family="JetBrains Mono,monospace" font-size="10" text-anchor="middle" letter-spacing="0.04em">MCP · stdio · JSON-RPC 2.0</text>
+
+      <!-- ============================================================ -->
+      <!-- 柱 1 — 确定性代码认知 (Cyan)   center=220  box x=59 w=322   -->
+      <!-- ============================================================ -->
+      <rect x="35" y="120" width="370" height="640" rx="10" fill="url(#g-cyan)" stroke="#0ea5e9" stroke-width="1" stroke-dasharray="6,4"/>
+      <text x="220" y="150" fill="#0ea5e9" font-family="Inter,sans-serif" font-size="17" font-weight="700" text-anchor="middle" letter-spacing="-0.02em">确定性代码认知</text>
+
+      <!-- 代码导航工具 -->
+      <rect x="59" y="172" width="322" height="134" rx="8" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+      <text x="220" y="198" fill="#ffffff" font-family="Inter,sans-serif" font-size="16" font-weight="600" text-anchor="middle" letter-spacing="-0.02em">代码导航工具</text>
+      <text x="220" y="224" text-anchor="middle" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em"><tspan fill="#0ea5e9" font-family="JetBrains Mono,monospace">code_search</tspan>  符号精确定位</text>
+      <text x="220" y="248" text-anchor="middle" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em"><tspan fill="#0ea5e9" font-family="JetBrains Mono,monospace">code_impact</tspan>  影响范围分析</text>
+      <text x="220" y="272" text-anchor="middle" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em"><tspan fill="#0ea5e9" font-family="JetBrains Mono,monospace">project_map</tspan>  项目结构地图</text>
+      <text x="220" y="296" text-anchor="middle" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em"><tspan fill="#0ea5e9" font-family="JetBrains Mono,monospace">flow_trace</tspan>  业务流程追踪</text>
+
+      <line x1="220" y1="306" x2="220" y2="322" stroke="#0ea5e9" stroke-width="1" marker-end="url(#a-cy)"/>
+
+      <!-- ASTIndexer -->
+      <rect x="59" y="326" width="322" height="68" rx="8" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+      <text x="220" y="352" fill="#ffffff" font-family="Inter,sans-serif" font-size="16" font-weight="600" text-anchor="middle" letter-spacing="-0.02em">ASTIndexer (Go 包装层)</text>
+      <text x="220" y="376" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" text-anchor="middle" letter-spacing="-0.01em">符号表 · 调用图 · 复杂度分析</text>
+
+      <line x1="220" y1="394" x2="220" y2="410" stroke="#0ea5e9" stroke-width="1" marker-end="url(#a-cy)"/>
+
+      <!-- Rust 引擎 -->
+      <rect x="59" y="414" width="322" height="106" rx="8" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+      <text x="220" y="440" fill="#ffffff" font-family="Inter,sans-serif" font-size="16" font-weight="600" text-anchor="middle" letter-spacing="-0.02em">Rust Tree-sitter 引擎</text>
+      <text x="220" y="462" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" text-anchor="middle" letter-spacing="-0.01em">Go · Rust · Python · JS/TS · Java · C++</text>
+      <text x="220" y="484" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" text-anchor="middle" letter-spacing="-0.01em">HTML · CSS · 12+ 种语言</text>
+      <text x="220" y="506" fill="#666666" font-family="Inter,sans-serif" font-size="11" text-anchor="middle">渐进式模糊搜索 · 精确 → 词干 → 编辑距离</text>
+
+      <line x1="220" y1="520" x2="220" y2="536" stroke="#0ea5e9" stroke-width="1" marker-end="url(#a-cy)"/>
+
+      <!-- Prompt 注入 -->
+      <rect x="59" y="540" width="322" height="104" rx="8" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="220" y="564" fill="#ffffff" font-family="Inter,sans-serif" font-size="16" font-weight="600" text-anchor="middle" letter-spacing="-0.02em">Prompt 信号注入</text>
+      <text x="79" y="590" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em">→ _MPM_PROJECT_RULES.md 自动生成</text>
+      <text x="79" y="614" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em">→ CLAUDE.md Hooks 规则注入</text>
+      <text x="79" y="638" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em">→ 真实代码结构 → AI 上下文窗口</text>
+
+      <line x1="220" y1="644" x2="220" y2="668" stroke="#0ea5e9" stroke-width="1" marker-end="url(#a-cy)"/>
+
+      <!-- 徽章 pill -->
+      <rect x="110" y="672" width="220" height="42" rx="21" fill="rgba(14,165,233,0.1)" stroke="#0ea5e9" stroke-width="1.5"/>
+      <text x="220" y="699" fill="#0ea5e9" font-family="Inter,sans-serif" font-size="16" font-weight="700" text-anchor="middle" letter-spacing="-0.02em">注意力收敛</text>
+
+      <!-- ============================================================ -->
+      <!-- 柱 2 — 工程记忆系统 (Emerald) center=640  box x=479 w=322   -->
+      <!-- ============================================================ -->
+      <rect x="455" y="120" width="370" height="640" rx="10" fill="url(#g-emerald)" stroke="#10b981" stroke-width="1" stroke-dasharray="6,4"/>
+      <text x="640" y="150" fill="#10b981" font-family="Inter,sans-serif" font-size="17" font-weight="700" text-anchor="middle" letter-spacing="-0.02em">工程记忆系统</text>
+
+      <!-- 记忆写入 -->
+      <rect x="479" y="172" width="322" height="100" rx="8" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+      <text x="640" y="198" fill="#ffffff" font-family="Inter,sans-serif" font-size="16" font-weight="600" text-anchor="middle" letter-spacing="-0.02em">记忆写入</text>
+      <text x="640" y="226" text-anchor="middle" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em"><tspan fill="#10b981" font-family="JetBrains Mono,monospace">memo</tspan>  工程变更记录 (SSOT)</text>
+      <text x="640" y="254" text-anchor="middle" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em"><tspan fill="#10b981" font-family="JetBrains Mono,monospace">known_facts</tspan>  原子级经验存档</text>
+
+      <line x1="640" y1="272" x2="640" y2="288" stroke="#10b981" stroke-width="1" marker-end="url(#a-em)"/>
+
+      <!-- MemoryLayer -->
+      <rect x="479" y="292" width="322" height="90" rx="8" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+      <text x="640" y="318" fill="#ffffff" font-family="Inter,sans-serif" font-size="16" font-weight="600" text-anchor="middle" letter-spacing="-0.02em">MemoryLayer 记忆核心</text>
+      <text x="640" y="342" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" text-anchor="middle" letter-spacing="-0.01em">memo · task · fact · state · hook 增删改查</text>
+      <text x="640" y="366" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" text-anchor="middle" letter-spacing="-0.01em">SQLite + 文件归档 双存储引擎</text>
+
+      <line x1="640" y1="382" x2="640" y2="398" stroke="#10b981" stroke-width="1" marker-end="url(#a-em)"/>
+
+      <!-- 记忆召回 -->
+      <rect x="479" y="402" width="322" height="100" rx="8" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+      <text x="640" y="428" fill="#ffffff" font-family="Inter,sans-serif" font-size="16" font-weight="600" text-anchor="middle" letter-spacing="-0.02em">记忆召回</text>
+      <text x="640" y="456" text-anchor="middle" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em"><tspan fill="#10b981" font-family="JetBrains Mono,monospace">system_recall</tspan>  关键词模糊检索</text>
+      <text x="640" y="484" text-anchor="middle" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em"><tspan fill="#10b981" font-family="JetBrains Mono,monospace">open_timeline</tspan>  项目演进可视化</text>
+
+      <line x1="640" y1="502" x2="640" y2="518" stroke="#10b981" stroke-width="1" marker-end="url(#a-em)"/>
+
+      <!-- 核心优势 -->
+      <rect x="479" y="522" width="322" height="106" rx="8" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+      <text x="640" y="548" fill="#ffffff" font-family="Inter,sans-serif" font-size="16" font-weight="600" text-anchor="middle" letter-spacing="-0.02em">核心优势</text>
+      <text x="499" y="574" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em">• 低开销：纯关键词检索，无向量计算</text>
+      <text x="499" y="598" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em">• 精准：分类过滤 + 多策略模糊匹配</text>
+      <text x="499" y="622" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em">• 持久：跨会话、跨项目永久记忆</text>
+
+      <line x1="640" y1="628" x2="640" y2="668" stroke="#10b981" stroke-width="1" marker-end="url(#a-em)"/>
+
+      <!-- 徽章 pill -->
+      <rect x="530" y="672" width="220" height="42" rx="21" fill="rgba(16,185,129,0.1)" stroke="#10b981" stroke-width="1.5"/>
+      <text x="640" y="699" fill="#10b981" font-family="Inter,sans-serif" font-size="16" font-weight="700" text-anchor="middle" letter-spacing="-0.02em">永不忘项目</text>
+
+      <!-- ============================================================ -->
+      <!-- 柱 3 — 自主任务引擎 (Violet)  center=1060  box x=899 w=322  -->
+      <!-- ============================================================ -->
+      <rect x="875" y="120" width="370" height="640" rx="10" fill="url(#g-violet)" stroke="#8b5cf6" stroke-width="1" stroke-dasharray="6,4"/>
+      <text x="1060" y="150" fill="#8b5cf6" font-family="Inter,sans-serif" font-size="17" font-weight="700" text-anchor="middle" letter-spacing="-0.02em">自主任务引擎</text>
+
+      <!-- task_chain V3 -->
+      <rect x="899" y="172" width="322" height="66" rx="8" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+      <text x="1060" y="198" fill="#ffffff" font-family="Inter,sans-serif" font-size="16" font-weight="600" text-anchor="middle" letter-spacing="-0.02em">task_chain V3</text>
+      <text x="1060" y="222" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" text-anchor="middle" letter-spacing="-0.01em">9 种操作 · JSON-RPC 接口</text>
+
+      <line x1="1060" y1="238" x2="1060" y2="254" stroke="#8b5cf6" stroke-width="1" marker-end="url(#a-vi)"/>
+
+      <!-- 状态机 -->
+      <rect x="899" y="258" width="322" height="110" rx="8" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+      <text x="1060" y="284" fill="#ffffff" font-family="Inter,sans-serif" font-size="16" font-weight="600" text-anchor="middle" letter-spacing="-0.02em">状态机引擎</text>
+      <text x="1060" y="312" text-anchor="middle" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em"><tspan fill="#8b5cf6" font-family="JetBrains Mono,monospace">Phase:</tspan>  execute · gate · loop</text>
+      <text x="1060" y="340" text-anchor="middle" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em"><tspan fill="#8b5cf6" font-family="JetBrains Mono,monospace">Status:</tspan>  pending → active → passed/failed</text>
+      <text x="1060" y="362" text-anchor="middle" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="12" letter-spacing="-0.01em"><tspan fill="#8b5cf6" font-family="JetBrains Mono,monospace">Gate:</tspan>  通过→下一阶段 | 失败→重试</text>
+
+      <line x1="1060" y1="368" x2="1060" y2="384" stroke="#8b5cf6" stroke-width="1" marker-end="url(#a-vi)"/>
+
+      <!-- 协议模板 -->
+      <rect x="899" y="388" width="322" height="110" rx="8" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+      <text x="1060" y="414" fill="#ffffff" font-family="Inter,sans-serif" font-size="16" font-weight="600" text-anchor="middle" letter-spacing="-0.02em">协议模板</text>
+      <text x="1060" y="442" text-anchor="middle" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em"><tspan fill="#8b5cf6" font-family="JetBrains Mono,monospace">linear</tspan>  线性顺序执行</text>
+      <text x="1060" y="470" text-anchor="middle" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em"><tspan fill="#8b5cf6" font-family="JetBrains Mono,monospace">develop</tspan>  开发流程</text>
+      <text x="1060" y="498" text-anchor="middle" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em"><tspan fill="#8b5cf6" font-family="JetBrains Mono,monospace">debug</tspan>  排查流程</text>
+
+      <line x1="1060" y1="498" x2="1060" y2="514" stroke="#8b5cf6" stroke-width="1" marker-end="url(#a-vi)"/>
+
+      <!-- 动态调向 -->
+      <rect x="899" y="518" width="322" height="106" rx="8" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+      <text x="1060" y="544" fill="#ffffff" font-family="Inter,sans-serif" font-size="16" font-weight="600" text-anchor="middle" letter-spacing="-0.02em">动态调向</text>
+      <text x="919" y="572" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em">• update 运行中修改任务目标</text>
+      <text x="919" y="598" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em">• system_hook 阻塞挂起/释放</text>
+      <text x="919" y="624" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="13" letter-spacing="-0.01em">• resume 跨会话断点续传</text>
+
+      <line x1="1060" y1="624" x2="1060" y2="668" stroke="#8b5cf6" stroke-width="1" marker-end="url(#a-vi)"/>
+
+      <!-- 徽章 pill -->
+      <rect x="950" y="672" width="220" height="42" rx="21" fill="rgba(139,92,246,0.1)" stroke="#8b5cf6" stroke-width="1.5"/>
+      <text x="1060" y="699" fill="#8b5cf6" font-family="Inter,sans-serif" font-size="16" font-weight="700" text-anchor="middle" letter-spacing="-0.02em">自主迭代</text>
+
+      <!-- ============================================================ -->
+      <!-- 支撑工具栏                                                    -->
+      <!-- ============================================================ -->
+      <rect x="35" y="780" width="1210" height="44" rx="8" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+      <text x="640" y="808" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="14" font-weight="500" text-anchor="middle" letter-spacing="-0.01em">
+        支撑工具 · initialize_project · persona · index_status
+      </text>
+
+      <!-- 存储栏 -->
+      <rect x="35" y="844" width="605" height="50" rx="8" fill="rgba(139,92,246,0.05)" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+      <text x="337" y="868" fill="#8b5cf6" font-family="Inter,sans-serif" font-size="15" font-weight="600" text-anchor="middle" letter-spacing="-0.02em">SQLite 数据库</text>
+      <text x="337" y="890" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="12" text-anchor="middle">symbols.db · 按项目隔离 · 自动修复</text>
+
+      <rect x="640" y="844" width="605" height="50" rx="8" fill="rgba(251,191,36,0.05)" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+      <text x="942" y="868" fill="#fbbf24" font-family="Inter,sans-serif" font-size="15" font-weight="600" text-anchor="middle" letter-spacing="-0.02em">文件系统</text>
+      <text x="942" y="890" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="12" text-anchor="middle">.mpm-data/ · 开发日志 · 记忆归档 · 项目规则</text>
+
+      <!-- 柱→存储 箭头 -->
+      <line x1="220" y1="760" x2="220" y2="842" stroke="#555555" stroke-width="0.8" stroke-dasharray="3,3" marker-end="url(#a-sl)"/>
+      <line x1="640" y1="760" x2="640" y2="842" stroke="#555555" stroke-width="0.8" stroke-dasharray="3,3" marker-end="url(#a-sl)"/>
+      <line x1="1060" y1="760" x2="1060" y2="842" stroke="#555555" stroke-width="0.8" stroke-dasharray="3,3" marker-end="url(#a-sl)"/>
+
+      <!-- 图例 -->
+      <text x="65" y="922" fill="#ffffff" font-family="Inter,sans-serif" font-size="13" font-weight="600" letter-spacing="-0.01em">图例</text>
+      <rect x="65" y="932" width="16" height="10" rx="3" fill="rgba(14,165,233,0.12)" stroke="#0ea5e9" stroke-width="0.8"/>
+      <text x="87" y="941" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="12">代码认知</text>
+      <rect x="220" y="932" width="16" height="10" rx="3" fill="rgba(16,185,129,0.12)" stroke="#10b981" stroke-width="0.8"/>
+      <text x="242" y="941" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="12">记忆系统</text>
+      <rect x="375" y="932" width="16" height="10" rx="3" fill="rgba(139,92,246,0.12)" stroke="#8b5cf6" stroke-width="0.8"/>
+      <text x="397" y="941" fill="#a0a0a0" font-family="Inter,sans-serif" font-size="12">任务引擎</text>
+
+    </svg>
+  </div>
+
+  <!-- 信息卡片 -->
+  <div class="cards">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot cyan"></div>
+        <h3>Rust 索引引擎</h3>
+      </div>
+      <ul>
+        <li>• 多语言 AST：Go/Rust/Python/JS/TS/Java/C++/HTML/CSS</li>
+        <li>• 渐进式模糊搜索：精确 → 前缀 → 子串 → 词干 → 编辑距离</li>
+        <li>• 调用图提取，支持调用者/被调用者分析</li>
+        <li>• 符号级复杂度和命名风格分析</li>
+        <li>• 快照与差异对比，追踪结构变更</li>
+        <li>• 基于 SQLite 的符号表，按项目隔离</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot emerald"></div>
+        <h3>记忆架构</h3>
+      </div>
+      <ul>
+        <li>• memo：工程变更 SSOT，记录 "为什么改" 而非 "改了什么"</li>
+        <li>• known_facts：原子级经验存档（铁律/避坑/规范/逻辑）</li>
+        <li>• system_recall：关键词模糊检索，多策略匹配</li>
+        <li>• open_timeline：交互式项目演进时间线</li>
+        <li>• SQLite 按项目隔离 + JSON 文件归档双存储</li>
+        <li>• schema 自动修复 + busy 重试容错机制</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot violet"></div>
+        <h3>Task Chain V3 协议</h3>
+      </div>
+      <ul>
+        <li>• 3 种阶段类型：execute · gate (通过/失败) · loop (子任务)</li>
+        <li>• 4 种内置协议：linear · develop · debug · refactor</li>
+        <li>• 9 种操作：init/start/complete/spawn/complete_sub/finish/status/resume/update</li>
+        <li>• Gate 门控验证：通过 → 下一阶段 | 失败 → 重试/回退</li>
+        <li>• update 模式：运行中动态修改任务目标和阶段</li>
+        <li>• 跨会话断点续传，状态持久化于 SQLite</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="footer">MPM-Coding v2.3.5 · MCP Server · Go 1.21+ / Rust · Tree-sitter</p>
+
+</div>
+
+<script>
+function toggleTheme() {
+  const body = document.body;
+  const btn = document.getElementById('theme-btn');
+  const isLight = body.getAttribute('data-theme') === 'light';
+  if (isLight) {
+    body.removeAttribute('data-theme');
+    btn.textContent = 'Light';
+  } else {
+    body.setAttribute('data-theme', 'light');
+    btn.textContent = 'Dark';
+  }
+}
+</script>
+</body>
+</html>
