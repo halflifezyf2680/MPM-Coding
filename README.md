@@ -166,6 +166,8 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1  # 或 ./scri
 
 ## 架构
 
+![MPM-Coding Architecture](./docs/architecture.png)
+
 ```
 mcp-server-go/
 ├── cmd/server/main.go              # 入口 (StdIO MCP Server)

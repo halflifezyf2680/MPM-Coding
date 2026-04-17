@@ -166,6 +166,8 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1  # or ./scrip
 
 ## Architecture
 
+![MPM-Coding Architecture](./docs/architecture.png)
+
 ```
 mcp-server-go/
 ├── cmd/server/main.go              # Entry point (StdIO MCP Server)
