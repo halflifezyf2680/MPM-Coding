@@ -42,17 +42,15 @@ No guessing. No blind edits. No missing trail.
 
 ### Why AST Indexing Instead of LSP
 
-LSP is for IDEs. MPM is for AI. Completely different requirements.
+The core bottleneck in AI coding isn't model capability — it's **too much garbage in the context window**.
 
-| | LSP | MPM (Tree-sitter) |
-|---|---|---|
-| Startup cost | Seconds to tens of seconds per server, plus workspace indexing | Millisecond-level parsing, zero warmup |
-| Dependencies | One server per language, backed by compiler ecosystems | Single binary, zero external deps |
-| Project requirements | Must compile to analyze | Parses any source files, no build system needed |
-| Deployment | Manages multiple long-running processes | One MCP Server, works out of the box |
-| What AI needs | Symbol definitions, call chains, structure — not completions and refactors | Tree-sitter provides exactly this |
+In a 50-file project, if the AI relies on reading files to understand code, it either reads everything (token explosion) or guesses which files matter (misses critical dependencies). Both are disasters. LSP solves IDE human-computer interaction — completions, go-to-definition, rename. AI clients already do these themselves.
 
-The core bottleneck for AI coding assistants is **attention** — it doesn't know where to look. AST indexing turns "where to look" from a guess into a deterministic symbol query. Code completion, go-to-definition, rename — AI clients already have these. MPM doesn't need to reinvent them.
+MPM solves a different problem: **how to make the AI understand code structure with minimal tokens**.
+
+`code_search` returns the exact location of a symbol definition — not a pile of grep results. `code_impact` returns the full call chain panorama — not making the AI guess file by file who calls what. `flow_trace` returns the main business logic chain — not a directory listing. The **output** of these tools constitutes a context cleaning — injecting only deterministic structural information, filtering out the noise.
+
+This is **attention convergence**: the AI no longer needs to blindly search through oceans of code. Tool outputs have already focused its attention on the few symbols and relationships that matter. Tree-sitter is just the implementation — it's fast, lightweight, and doesn't need a compilation environment, making it suitable as an MCP tool that returns results in real-time. What's truly valuable is the effect these results produce once injected into the AI's context.
 
 ---
 
