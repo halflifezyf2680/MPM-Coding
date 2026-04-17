@@ -40,6 +40,20 @@ MPM doesn't make the model smarter. MPM makes the work **finishable**.
 Every modification follows: **find → assess → change → record**.
 No guessing. No blind edits. No missing trail.
 
+### Why AST Indexing Instead of LSP
+
+LSP is for IDEs. MPM is for AI. Completely different requirements.
+
+| | LSP | MPM (Tree-sitter) |
+|---|---|---|
+| Startup cost | Seconds to tens of seconds per server, plus workspace indexing | Millisecond-level parsing, zero warmup |
+| Dependencies | One server per language, backed by compiler ecosystems | Single binary, zero external deps |
+| Project requirements | Must compile to analyze | Parses any source files, no build system needed |
+| Deployment | Manages multiple long-running processes | One MCP Server, works out of the box |
+| What AI needs | Symbol definitions, call chains, structure — not completions and refactors | Tree-sitter provides exactly this |
+
+The core bottleneck for AI coding assistants is **attention** — it doesn't know where to look. AST indexing turns "where to look" from a guess into a deterministic symbol query. Code completion, go-to-definition, rename — AI clients already have these. MPM doesn't need to reinvent them.
+
 ---
 
 ## Toolkit
