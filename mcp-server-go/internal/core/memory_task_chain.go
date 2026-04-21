@@ -61,6 +61,42 @@ func (m *MemoryLayer) SaveTaskChain(ctx context.Context, rec *TaskChainRecord) e
 	return err
 }
 
+// PersistTaskChain 原子化写入任务链主记录和事件。
+func (m *MemoryLayer) PersistTaskChain(ctx context.Context, rec *TaskChainRecord, evt *TaskChainEvent) error {
+	const chainQuery = `INSERT INTO task_chains (task_id, description, protocol, status, phases_json, current_phase, reinit_count, plan_state, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(task_id) DO UPDATE SET
+			description=excluded.description,
+			protocol=excluded.protocol,
+			status=excluded.status,
+			phases_json=excluded.phases_json,
+			current_phase=excluded.current_phase,
+			reinit_count=excluded.reinit_count,
+			plan_state=excluded.plan_state,
+			updated_at=excluded.updated_at`
+	const eventQuery = `INSERT INTO task_chain_events (task_id, phase_id, sub_id, event_type, payload, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)`
+
+	now := time.Now().Format(time.RFC3339)
+	createdAt := rec.CreatedAt
+	if createdAt == "" {
+		createdAt = now
+	}
+
+	return m.dbManager.WithTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.Exec(chainQuery,
+			rec.TaskID, rec.Description, rec.Protocol, rec.Status,
+			rec.PhasesJSON, rec.CurrentPhase, rec.ReinitCount, rec.PlanState, createdAt, now); err != nil {
+			return err
+		}
+		if evt == nil {
+			return nil
+		}
+		_, err := tx.Exec(eventQuery, evt.TaskID, evt.PhaseID, evt.SubID, evt.EventType, evt.Payload, now)
+		return err
+	})
+}
+
 // LoadTaskChain 加载任务链
 func (m *MemoryLayer) LoadTaskChain(ctx context.Context, taskID string) (*TaskChainRecord, error) {
 	query := `SELECT task_id, description, protocol, status, phases_json, current_phase, reinit_count, plan_state, created_at, updated_at

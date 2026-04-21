@@ -67,23 +67,17 @@ func persistV3Chain(ctx context.Context, sm *SessionManager, chain *TaskChainV3,
 		ReinitCount:  chain.ReinitCount,
 		PlanState:    chain.PlanState,
 	}
-	if err := sm.Memory.SaveTaskChain(ctx, rec); err != nil {
-		return err
-	}
-
+	var evt *core.TaskChainEvent
 	if eventType != "" {
-		evt := &core.TaskChainEvent{
+		evt = &core.TaskChainEvent{
 			TaskID:    chain.TaskID,
 			PhaseID:   phaseID,
 			SubID:     subID,
 			EventType: eventType,
 			Payload:   payload,
 		}
-		if _, err := sm.Memory.AppendTaskChainEvent(ctx, evt); err != nil {
-			return err
-		}
 	}
-	return nil
+	return sm.Memory.PersistTaskChain(ctx, rec, evt)
 }
 
 // getOrLoadV3Chain 从内存获取协议链，不存在则从 DB 加载

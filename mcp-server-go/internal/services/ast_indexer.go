@@ -635,7 +635,7 @@ func (ai *ASTIndexer) StructureProjectWithScope(projectRoot string, scope string
 func (ai *ASTIndexer) MapProjectWithScope(projectRoot string, detail string, scope string) (*MapResult, error) {
 	dbPath := getDBPath(projectRoot)
 	outputPath := getOutputPath(projectRoot, "map")
-	// defer os.Remove(outputPath)
+	defer os.Remove(outputPath)
 
 	// 清理旧文件
 	_ = os.Remove(outputPath)
@@ -987,7 +987,9 @@ func (ai *ASTIndexer) AnalyzeNamingStyle(projectRoot string) (*NamingAnalysis, e
 
 	for rows.Next() {
 		var name string
-		rows.Scan(&name)
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("读取函数名失败: %w", err)
+		}
 		funcNames = append(funcNames, name)
 
 		// 风格判定
@@ -1004,6 +1006,9 @@ func (ai *ASTIndexer) AnalyzeNamingStyle(projectRoot string) (*NamingAnalysis, e
 		} else if strings.HasPrefix(name, "get") && len(name) > 3 && name[3] >= 'A' && name[3] <= 'Z' {
 			prefixCounts["get"]++ // camelCase get
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历函数名失败: %w", err)
 	}
 
 	// 4. 计算结果

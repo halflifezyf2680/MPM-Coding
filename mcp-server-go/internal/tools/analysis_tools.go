@@ -569,6 +569,19 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 			return mcp.NewToolResultError("❌ 参数错误：file_path 不能为空字符串"), nil
 		}
 
+		scope, err := normalizeProjectRelativePath(sm.ProjectRoot, args.Scope, "scope")
+		if err != nil {
+			return mcp.NewToolResultError("❌ " + err.Error()), nil
+		}
+
+		filePath := strings.TrimSpace(args.FilePath)
+		if hasFile {
+			filePath, err = normalizeProjectRelativePath(sm.ProjectRoot, args.FilePath, "file_path")
+			if err != nil {
+				return mcp.NewToolResultError("❌ " + err.Error()), nil
+			}
+		}
+
 		direction := strings.ToLower(strings.TrimSpace(args.Direction))
 		if direction == "" {
 			direction = "both"
@@ -589,9 +602,14 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 
 		var snapshots []*flowTraceSnapshot
 		allSnapshots := 0
+		var warmupWarning string
 
 		if strings.TrimSpace(args.SymbolName) != "" {
-			searchResult, err := ai.SearchSymbolWithScope(sm.ProjectRoot, args.SymbolName, args.Scope)
+			if err := warmIndexForPath(ai, sm.ProjectRoot, scope); err != nil {
+				warmupWarning = fmt.Sprintf("⚠️ 索引预热失败，以下结果可能基于旧索引：%v", err)
+			}
+
+			searchResult, err := ai.SearchSymbolWithScope(sm.ProjectRoot, args.SymbolName, scope)
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("symbol 定位失败: %v", err)), nil
 			}
@@ -634,13 +652,15 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 			snapshots = append(snapshots, snap)
 		} else {
 			// file mode
-			_, _ = ai.IndexScope(sm.ProjectRoot, args.FilePath)
-			mapResult, err := ai.MapProjectWithScope(sm.ProjectRoot, "symbols", args.FilePath)
+			if err := warmIndexForPath(ai, sm.ProjectRoot, filePath); err != nil {
+				warmupWarning = fmt.Sprintf("⚠️ 索引预热失败，以下结果可能基于旧索引：%v", err)
+			}
+			mapResult, err := ai.MapProjectWithScope(sm.ProjectRoot, "symbols", filePath)
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("文件符号提取失败: %v", err)), nil
 			}
 			if mapResult == nil || len(mapResult.Structure) == 0 {
-				return mcp.NewToolResultError(fmt.Sprintf("文件无可追踪符号: %s", args.FilePath)), nil
+				return mcp.NewToolResultError(fmt.Sprintf("文件无可追踪符号: %s", filePath)), nil
 			}
 
 			primaryNodes := make([]services.Node, 0)
@@ -661,7 +681,7 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 				nodes = secondaryNodes
 			}
 			if len(nodes) == 0 {
-				return mcp.NewToolResultError(fmt.Sprintf("文件中无函数/类符号: %s", args.FilePath)), nil
+				return mcp.NewToolResultError(fmt.Sprintf("文件中无函数/类符号: %s", filePath)), nil
 			}
 			sort.Slice(nodes, func(i, j int) bool {
 				ki := flowKindPriority(flowNodeKind(nodes[i].NodeType))
@@ -724,12 +744,16 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 			}
 
 			if len(snapshots) == 0 {
-				return mcp.NewToolResultError(fmt.Sprintf("文件流程追踪失败: %s", args.FilePath)), nil
+				return mcp.NewToolResultError(fmt.Sprintf("文件流程追踪失败: %s", filePath)), nil
 			}
 		}
 
 		var sb strings.Builder
 		sb.WriteString("### 🔄 业务流程追踪\n\n")
+		if warmupWarning != "" {
+			sb.WriteString(warmupWarning)
+			sb.WriteString("\n\n")
+		}
 		sb.WriteString(fmt.Sprintf("**模式**: %s | **视图**: %s | **方向**: %s\n\n", func() string {
 			if strings.TrimSpace(args.SymbolName) != "" {
 				return "symbol"
@@ -952,18 +976,9 @@ func wrapProjectMap(sm *SessionManager, ai *services.ASTIndexer) server.ToolHand
 			return mcp.NewToolResultError("项目未初始化，请先执行 initialize_project"), nil
 		}
 
-		// 🔧 scope 参数验证：检测绝对路径
-		scope := strings.TrimSpace(args.Scope)
-		if scope != "" {
-			// 检测是否为绝对路径（Windows: C:\, D:\ 等；Unix: /开头）
-			if filepath.IsAbs(scope) || (len(scope) >= 2 && scope[1] == ':') {
-				return mcp.NewToolResultError(fmt.Sprintf(
-					"❌ scope 参数应为项目内**相对路径**，而不是绝对路径。\n"+
-						"   你传入的是: `%s`\n"+
-						"   当前项目根: `%s`\n"+
-						"   正确用法示例: scope=\"internal/services\" 或 scope=\"src\"",
-					scope, sm.ProjectRoot)), nil
-			}
+		scope, err := normalizeProjectRelativePath(sm.ProjectRoot, args.Scope, "scope")
+		if err != nil {
+			return mcp.NewToolResultError("❌ " + err.Error()), nil
 		}
 
 		level := args.Level
@@ -973,7 +988,7 @@ func wrapProjectMap(sm *SessionManager, ai *services.ASTIndexer) server.ToolHand
 
 		if level == "structure" {
 			// 结构视图走 Rust structure 模式，不触发全量符号索引，避免超大 JSON
-			structureResult, err := ai.StructureProjectWithScope(sm.ProjectRoot, args.Scope)
+			structureResult, err := ai.StructureProjectWithScope(sm.ProjectRoot, scope)
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("生成结构地图失败: %v", err)), nil
 			}
@@ -1039,10 +1054,9 @@ func wrapProjectMap(sm *SessionManager, ai *services.ASTIndexer) server.ToolHand
 		}
 
 		// symbols 视图：优先按范围补录（热点目录），否则按新鲜度检查全量索引
-		if scope != "" {
-			_, _ = ai.IndexScope(sm.ProjectRoot, scope)
-		} else {
-			_, _ = ai.EnsureFreshIndex(sm.ProjectRoot)
+		var warmupWarning string
+		if err := warmIndexForPath(ai, sm.ProjectRoot, scope); err != nil {
+			warmupWarning = fmt.Sprintf("⚠️ 索引预热失败，以下地图可能基于旧索引：%v", err)
 		}
 
 		// 调用 AST 服务生成数据
@@ -1095,6 +1109,9 @@ func wrapProjectMap(sm *SessionManager, ai *services.ASTIndexer) server.ToolHand
 		mr := NewMapRenderer(result, sm.ProjectRoot)
 
 		content := mr.RenderStandard()
+		if warmupWarning != "" {
+			content = warmupWarning + "\n\n" + content
+		}
 
 		// 🆕 主动接管大输出：如果 > 2000 字符，保存到文件
 		if len(content) > 2000 {

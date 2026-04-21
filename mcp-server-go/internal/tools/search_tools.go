@@ -55,23 +55,25 @@ func wrapSearch(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerF
 			return mcp.NewToolResultError(fmt.Sprintf("参数格式错误: %v", err)), nil
 		}
 
-		// 优先按范围补录（热点目录），否则按新鲜度检查全量索引
-		if strings.TrimSpace(args.Scope) != "" {
-			_, _ = ai.IndexScope(sm.ProjectRoot, args.Scope)
-		} else {
-			_, _ = ai.EnsureFreshIndex(sm.ProjectRoot)
+		scope, err := normalizeProjectRelativePath(sm.ProjectRoot, args.Scope, "scope")
+		if err != nil {
+			return mcp.NewToolResultError("❌ " + err.Error()), nil
+		}
+
+		var warmupWarning string
+		if err := warmIndexForPath(ai, sm.ProjectRoot, scope); err != nil {
+			warmupWarning = fmt.Sprintf("⚠️ 索引预热失败，以下结果可能基于旧索引：%v\n\n", err)
 		}
 
 		// 1. AST Search (Core Strategy)
-		astResult, err := ai.SearchSymbolWithScope(sm.ProjectRoot, args.Query, args.Scope)
+		astResult, err := ai.SearchSymbolWithScope(sm.ProjectRoot, args.Query, scope)
 		if err != nil {
 			// Log error but continue to grep if possible
 		}
 
 		// 1.1 Scope Filtering (Client-side enforcement)
-		if astResult != nil && astResult.FoundSymbol != nil && args.Scope != "" {
+		if astResult != nil && astResult.FoundSymbol != nil && scope != "" {
 			path := strings.ReplaceAll(astResult.FoundSymbol.FilePath, "\\", "/")
-			scope := strings.ReplaceAll(args.Scope, "\\", "/")
 			if !strings.Contains(path, scope) {
 				astResult.FoundSymbol = nil
 			}
@@ -114,6 +116,9 @@ func wrapSearch(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerF
 
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("### 关于「%s」的搜索结果\n\n", args.Query))
+		if warmupWarning != "" {
+			sb.WriteString(warmupWarning)
+		}
 
 		// 2. Decide if Grep is needed
 		// Fallback trigger: No Exact Match found in AST (after filtering)
@@ -197,8 +202,8 @@ func wrapSearch(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerF
 
 			// 智能检测是否包含路径分隔符，如果有，只搜那个文件或目录
 			searchRoot := sm.ProjectRoot
-			if args.Scope != "" {
-				searchRoot = filepath.Join(sm.ProjectRoot, args.Scope)
+			if scope != "" {
+				searchRoot = filepath.Join(sm.ProjectRoot, scope)
 			}
 
 			matches, err := rg.Search(ctx, services.SearchOptions{

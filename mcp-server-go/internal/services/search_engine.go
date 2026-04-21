@@ -81,6 +81,47 @@ type RgMatchText struct {
 	Text string `json:"text"`
 }
 
+type contextLine struct {
+	filePath   string
+	lineNumber int
+	content    string
+}
+
+func appendContextSegment(dst *string, content string) {
+	content = strings.TrimRight(content, "\r\n")
+	if content == "" {
+		return
+	}
+	if *dst == "" {
+		*dst = content
+		return
+	}
+	*dst += "\n" + content
+}
+
+func collectContextBefore(lines []contextLine, filePath string, lineNumber int) string {
+	var selected []string
+	expect := lineNumber - 1
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := lines[i]
+		if line.filePath != filePath {
+			continue
+		}
+		if line.lineNumber != expect {
+			if len(selected) > 0 {
+				break
+			}
+			continue
+		}
+		selected = append(selected, line.content)
+		expect--
+	}
+	for i, j := 0, len(selected)-1; i < j; i, j = i+1, j-1 {
+		selected[i], selected[j] = selected[j], selected[i]
+	}
+	return strings.Join(selected, "\n")
+}
+
 // Search 执行搜索
 func (e *RipgrepEngine) Search(ctx context.Context, opts SearchOptions) ([]TextMatch, error) {
 	if opts.RootPath == "" {
@@ -257,11 +298,10 @@ func (e *RipgrepEngine) nativeSearch(ctx context.Context, opts SearchOptions) ([
 // parseOutput 解析 JSON 输出
 func (e *RipgrepEngine) parseOutput(output []byte) ([]TextMatch, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(output))
+	scanner.Buffer(make([]byte, 0, 256*1024), 2*1024*1024)
 	var results []TextMatch
-
-	// 暂存 context，rg json 的 context 是分开的消息
-	// 目前简化处理，只提取 match 类型的行
-	// TODO: 完整支持 context (rg 输出顺序是 Context -> Match -> Context)
+	var recentContext []contextLine
+	var lastMatch *TextMatch
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -270,7 +310,26 @@ func (e *RipgrepEngine) parseOutput(output []byte) ([]TextMatch, error) {
 			continue // 忽略解析错误行
 		}
 
-		if msg.Type == "match" {
+		switch msg.Type {
+		case "context":
+			var contextData RgMatchData
+			if err := json.Unmarshal(msg.Data, &contextData); err != nil {
+				continue
+			}
+			cleanPath := strings.ReplaceAll(contextData.Path.Text, "\\", "/")
+			content := strings.TrimRight(contextData.Lines.Text, "\r\n")
+			recentContext = append(recentContext, contextLine{
+				filePath:   cleanPath,
+				lineNumber: contextData.LineNumber,
+				content:    content,
+			})
+			if len(recentContext) > 64 {
+				recentContext = recentContext[len(recentContext)-64:]
+			}
+			if lastMatch != nil && lastMatch.FilePath == cleanPath && contextData.LineNumber > lastMatch.LineNumber {
+				appendContextSegment(&lastMatch.ContextAfter, content)
+			}
+		case "match":
 			var matchData RgMatchData
 			if err := json.Unmarshal(msg.Data, &matchData); err != nil {
 				continue
@@ -290,12 +349,18 @@ func (e *RipgrepEngine) parseOutput(output []byte) ([]TextMatch, error) {
 			content := strings.TrimRight(matchData.Lines.Text, "\r\n")
 
 			results = append(results, TextMatch{
-				FilePath:   cleanPath,
-				LineNumber: matchData.LineNumber,
-				Content:    content,
-				Submatches: subs,
+				FilePath:      cleanPath,
+				LineNumber:    matchData.LineNumber,
+				Content:       content,
+				ContextBefore: collectContextBefore(recentContext, cleanPath, matchData.LineNumber),
+				Submatches:    subs,
 			})
+			lastMatch = &results[len(results)-1]
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("parse ripgrep output failed: %w", err)
 	}
 
 	return results, nil

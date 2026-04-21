@@ -117,11 +117,15 @@ func handleAnalyzeStep1(ctx context.Context, sm *SessionManager, ai *services.AS
 	// 1. 意图识别
 	intent := determineIntent(args.TaskDescription, args.Intent, args.ReadOnly)
 
+	scope, err := normalizeProjectRelativePath(sm.ProjectRoot, args.Scope, "scope")
+	if err != nil {
+		return mcp.NewToolResultError("❌ " + err.Error()), nil
+	}
+
 	// 1.1 索引预热（避免使用过期索引）
-	if strings.TrimSpace(args.Scope) != "" {
-		_, _ = ai.IndexScope(sm.ProjectRoot, args.Scope)
-	} else {
-		_, _ = ai.EnsureFreshIndex(sm.ProjectRoot)
+	var prewarmAlert string
+	if err := warmIndexForPath(ai, sm.ProjectRoot, scope); err != nil {
+		prewarmAlert = fmt.Sprintf("⚠️ 索引预热失败，当前分析可能基于旧索引: %v", err)
 	}
 
 	// 2. 符号预搜索 (Code Anchors)
@@ -139,7 +143,7 @@ func handleAnalyzeStep1(ctx context.Context, sm *SessionManager, ai *services.AS
 		}
 		uniqueSymbols[sym] = true
 
-		anchor := resolveCodeAnchor(ctx, sm, ai, sym, args.Scope)
+		anchor := resolveCodeAnchor(ctx, sm, ai, sym, scope)
 		if anchor == nil {
 			continue
 		}
@@ -188,6 +192,9 @@ func handleAnalyzeStep1(ctx context.Context, sm *SessionManager, ai *services.AS
 
 	// 6. 生成综合警告
 	alerts := generateAlerts(args.TaskDescription, intent, args.ReadOnly)
+	if prewarmAlert != "" {
+		alerts = append(alerts, prewarmAlert)
+	}
 	alerts = append(alerts, complexityAlerts...)
 
 	// 7. 保存状态到 Session

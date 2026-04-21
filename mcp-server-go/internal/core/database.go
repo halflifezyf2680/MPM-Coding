@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -289,6 +290,25 @@ func (m *DatabaseManager) QueryRow(query string, args ...interface{}) *sql.Row {
 // Query 执行多行查询
 func (m *DatabaseManager) Query(query string, args ...interface{}) (*sql.Rows, error) {
 	return m.db.Query(query, args...)
+}
+
+// WithTx 在单个事务中执行数据库写入逻辑。
+func (m *DatabaseManager) WithTx(ctx context.Context, fn func(*sql.Tx) error) error {
+	return with_sqlite_busy_retry(func() error {
+		tx, err := m.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		if err := fn(tx); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		return nil
+	})
 }
 
 // Close 关闭连接
