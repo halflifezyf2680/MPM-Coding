@@ -3,6 +3,7 @@ package tools
 import (
 	"fmt"
 	"mcp-server-go/internal/services"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -20,7 +21,8 @@ func normalizeProjectRelativePath(projectRoot, raw, fieldName string) (string, e
 		)
 	}
 
-	cleaned := filepath.ToSlash(filepath.Clean(value))
+	normalized := strings.ReplaceAll(value, "\\", "/")
+	cleaned := path.Clean(normalized)
 	cleaned = strings.TrimPrefix(cleaned, "./")
 
 	if cleaned == "." || cleaned == "" {
