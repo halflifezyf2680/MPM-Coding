@@ -4,6 +4,8 @@ bin/
 *.dll
 *.so
 *.dylib
+build_output.txt
+test_output.txt
 
 # IDE
 .idea/

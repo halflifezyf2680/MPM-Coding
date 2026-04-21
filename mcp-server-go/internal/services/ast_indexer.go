@@ -785,7 +785,9 @@ func (ai *ASTIndexer) GetSymbolAtLine(projectRoot string, filePath string, line 
 // Analyze 执行影响分析 (--mode analyze)
 func (ai *ASTIndexer) Analyze(projectRoot string, symbol string, direction string) (*ImpactResult, error) {
 	// 先确保索引是最新的
-	_, _ = ai.EnsureFreshIndex(projectRoot)
+	if _, err := ai.EnsureFreshIndex(projectRoot); err != nil {
+		fmt.Fprintf(os.Stderr, "[Analyze] 索引刷新失败，尝试使用现有索引: %v\n", err)
+	}
 
 	dbPath := getDBPath(projectRoot)
 	outputPath := getOutputPath(projectRoot, "analyze")
@@ -945,8 +947,7 @@ func (ai *ASTIndexer) IndexScope(projectRoot string, scope string) (*IndexResult
 func (ai *ASTIndexer) AnalyzeNamingStyle(projectRoot string) (*NamingAnalysis, error) {
 	// 1. 确保索引存在 (且尝试刷新)
 	if _, err := ai.EnsureFreshIndex(projectRoot); err != nil {
-		// 如果索引失败，尝试直接读取现有数据库
-		// 什么也不做
+		fmt.Fprintf(os.Stderr, "[AnalyzeNamingStyle] 索引刷新失败，尝试使用现有数据库: %v\n", err)
 	}
 
 	dbPath := getDBPath(projectRoot)
@@ -1118,6 +1119,11 @@ func (ai *ASTIndexer) AnalyzeComplexity(projectRoot string, symbolNames []string
 				symbols = append(symbols, s)
 			}
 		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			fmt.Fprintf(os.Stderr, "[AnalyzeComplexity] 遍历符号失败: %v\n", err)
+			continue
+		}
 		rows.Close()
 
 		if len(symbols) == 0 {
@@ -1130,7 +1136,10 @@ func (ai *ASTIndexer) AnalyzeComplexity(projectRoot string, symbolNames []string
 		for _, sym := range symbols {
 			// Fan-out: 我调用了谁 (caller_id = symbol_id)
 			var fanOut int
-			db.QueryRow("SELECT COUNT(*) FROM calls WHERE caller_id = ?", sym.id).Scan(&fanOut)
+			if err := db.QueryRow("SELECT COUNT(*) FROM calls WHERE caller_id = ?", sym.id).Scan(&fanOut); err != nil {
+				fmt.Fprintf(os.Stderr, "[AnalyzeComplexity] fan-out 查询失败: %v\n", err)
+				continue
+			}
 			if fanOut > maxFanOut {
 				maxFanOut = fanOut
 			}
@@ -1138,12 +1147,18 @@ func (ai *ASTIndexer) AnalyzeComplexity(projectRoot string, symbolNames []string
 			// Fan-in: 优先 callee_id，回退 callee_name
 			var fanIn int
 			if hasCalleeID {
-				db.QueryRow(
+				if err := db.QueryRow(
 					"SELECT COUNT(*) FROM calls WHERE callee_id = ? OR (callee_id IS NULL AND callee_name = ?)",
 					sym.canonicalID, name,
-				).Scan(&fanIn)
+				).Scan(&fanIn); err != nil {
+					fmt.Fprintf(os.Stderr, "[AnalyzeComplexity] fan-in 查询失败: %v\n", err)
+					continue
+				}
 			} else {
-				db.QueryRow("SELECT COUNT(*) FROM calls WHERE callee_name = ?", name).Scan(&fanIn)
+				if err := db.QueryRow("SELECT COUNT(*) FROM calls WHERE callee_name = ?", name).Scan(&fanIn); err != nil {
+					fmt.Fprintf(os.Stderr, "[AnalyzeComplexity] fan-in 查询失败: %v\n", err)
+					continue
+				}
 			}
 			if fanIn > maxFanIn {
 				maxFanIn = fanIn

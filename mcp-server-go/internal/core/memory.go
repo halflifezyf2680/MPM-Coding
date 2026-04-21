@@ -350,6 +350,9 @@ func (m *MemoryLayer) SearchMemos(ctx context.Context, keywords string, category
 		}
 		memos = append(memos, m)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历搜索结果失败: %w", err)
+	}
 	return memos, nil
 }
 
@@ -379,8 +382,10 @@ func (m *MemoryLayer) SyncDevLog() {
 		}
 		memos = append(memos, m)
 	}
-
-	// 保持倒序（最新的在上面），不进行排序
+	if err := rows.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "[SyncDevLog] rows iteration error: %v\n", err)
+		return
+	}
 	// memos 已经是从数据库按 id DESC 取出的，直接使用
 
 	projectName := filepath.Base(m.projectRoot)
@@ -492,6 +497,9 @@ func (m *MemoryLayer) QueryMemos(ctx context.Context, keywords, category string,
 		}
 		results = append(results, item)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历 memo 结果失败: %w", err)
+	}
 	return results, nil
 }
 
@@ -542,6 +550,9 @@ func (m *MemoryLayer) QueryTasks(ctx context.Context, keywords string, limit int
 		}
 		results = append(results, t)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历 task 结果失败: %w", err)
+	}
 	return results, nil
 }
 
@@ -584,6 +595,9 @@ func (m *MemoryLayer) QueryFacts(ctx context.Context, keywords string, limit int
 		}
 		results = append(results, f)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历 fact 结果失败: %w", err)
+	}
 	return results, nil
 }
 
@@ -625,6 +639,9 @@ func (m *MemoryLayer) GetRecentTasks(ctx context.Context, limit int) ([]Task, er
 			continue
 		}
 		results = append(results, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历 recent tasks 结果失败: %w", err)
 	}
 	return results, nil
 }
@@ -729,6 +746,9 @@ func (m *MemoryLayer) ListHooks(ctx context.Context, status string) ([]Hook, err
 		h.RelatedTaskID = relatedTaskID.String
 		h.Summary = summary.String
 		hooks = append(hooks, h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历 hooks 结果失败: %w", err)
 	}
 	return hooks, nil
 }
