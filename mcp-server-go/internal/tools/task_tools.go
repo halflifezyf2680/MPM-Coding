@@ -95,19 +95,54 @@ func RegisterTaskTools(s *server.MCPServer, sm *SessionManager) {
   - 过程脱钩: AI 在 Phase 内部享有绝对执行自由，可连续自由调用专家工具，无需中途频繁打卡。仅在您认为完全达成验收标准后，调用 complete 结算。
 
 参数速查：
-  mode         必填参数
-  ───────────────────────────────────────────────
-  init         task_id, description [, protocol|phases]
-  update       task_id [, description] [, phases]    ← 修改任务目标，保留已完成阶段
-  start        task_id, phase_id
-  complete     task_id, phase_id, summary [, result(gate必填)]
-  status       task_id (仅查看状态)
-  resume       task_id
-  finish       task_id (任务彻底结束)
+  mode          必填参数
+  ──────────────────────────────────────────────────────────────────────
+  init          task_id, description [, protocol|phases]
+  update        task_id [, description] [, phases]    ← 修改任务目标，保留已完成阶段
+  start         task_id, phase_id
+  complete      task_id, phase_id, summary [, result(gate必填)]
+  spawn         task_id, phase_id, sub_tasks          ← loop阶段生成子任务
+  complete_sub  task_id, phase_id, sub_id, summary [, result]
+  status        task_id (仅查看状态)
+  resume        task_id (从DB恢复并查看状态)
+  finish        task_id (任务彻底结束)
+  protocol      (无必填参数) 列出可用协议模板
 
-说明：
-  - 支持内置宏观协议: develop(开发), debug(排查), refactor(重构)
-  - update mode: 原地修改任务目标，已完成的阶段会被保留，未完成阶段会被新定义覆盖
+phases 参数结构 (init/update 时手动定义阶段):
+  [{id, name?, type?, input?, verify?, on_pass?, on_fail?, max_retries?}]
+  - id: 阶段唯一标识 (必填)
+  - name: 显示名称 (缺省=id)
+  - type: "execute"(默认) | "gate" | "loop"
+  - input: 目标描述
+  - verify: 验收标准
+  - on_pass / on_fail: gate专用，通过/失败后跳转的阶段ID
+  - max_retries: gate最大重试次数 (默认3)
+
+sub_tasks 参数结构 (spawn 时定义子任务):
+  [{id?, name, verify?}]
+  - id: 子任务标识 (缺省自动生成 sub_NNN)
+  - name: 子任务名称 (必填)
+  - verify: 验收标准
+
+阶段类型说明:
+  - execute: 普通执行阶段，complete 时只需 summary
+  - gate: 门控检查点，complete 时必须传 result="pass"|"fail"。失败后根据 on_fail 回退，重试达上限则任务失败
+  - loop: 循环阶段，先 spawn 子任务，再逐个 complete_sub。全部子任务完成后 loop 自动标记 passed
+
+内置协议 (init 时 protocol 参数):
+  - linear(默认): 单阶段线性执行
+  - develop: 实现 → 验收gate → 收尾
+  - debug: 排查修复 → 回归gate → 收尾
+  - refactor: 重构 → 回归gate → 收尾
+
+update mode: 原地修改任务目标，安全且低成本。
+  - 只传 description → 仅更新任务描述（轻量，适合目标微调）
+  - 传 phases → 替换未完成阶段（适合结构需要调整时）
+  - 已完成的阶段永远保留，不会丢失进度
+  什么时候该用 update（而不是继续执行）:
+  - 下一个阶段的验收标准(verify)已经不适用当前发现
+  - 原计划缺少必要的阶段（如需要增加排查步骤或额外的 gate）
+  - 任务目标本身需要收缩或扩展
 
 触发词：
   "mpm 任务链", "mpm 续传", "mpm chain"`),

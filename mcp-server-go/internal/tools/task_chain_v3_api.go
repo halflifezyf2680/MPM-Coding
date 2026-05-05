@@ -619,10 +619,10 @@ func renderV3NextPhaseHint(chain *TaskChainV3, taskID, nextID string) string {
 	sb.WriteString(fmt.Sprintf("  task_chain(mode=\"start\", task_id=\"%s\", phase_id=\"%s\")\n", taskID, nextID))
 
 	// 自审提示
-	sb.WriteString("\n🔍 自审：当前发现是否与初始目标一致？\n")
-	sb.WriteString("  • 一切正常 → 继续执行上方 start 指令\n")
-	sb.WriteString("  • 发现偏差，信息足够 → 修改任务目标（调用 update mode）\n")
-	sb.WriteString("  • 发现偏差，信息不足 → 先调工具补充信息，再决定是否修改任务目标\n")
+	sb.WriteString("\n🔍 自审：继续前先检查\n")
+	sb.WriteString("  • 下一阶段的验收标准仍然适用 → 继续执行上方 start 指令\n")
+	sb.WriteString("  • 验收标准不再适用，或原计划缺少阶段 → task_chain(mode=\"update\", ...) 修改计划\n")
+	sb.WriteString("  • 不确定 → 先调工具补充信息，再决定 start 还是 update\n")
 	if chain.ReinitCount > 0 {
 		sb.WriteString(fmt.Sprintf("  ⚠️  已 re-init %d 次，若仍有问题请停下询问用户\n", chain.ReinitCount))
 	}
