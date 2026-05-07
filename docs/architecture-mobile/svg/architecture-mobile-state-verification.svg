@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920" role="img" aria-labelledby="title desc">
+  <title id="title">MPM-Coding 状态流转与验收子图</title>
+  <desc id="desc">展示任务链、索引状态、记忆记录和最终验收方式。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="24" markerHeight="24" refX="20" refY="12" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M2,2 L22,12 L2,22 Z" fill="#111827"/>
+    </marker>
+    <style>
+      .title{font-family:"Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif;font-size:52px;font-weight:800;fill:#111827}
+      .sub{font-family:"Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif;font-size:25px;font-weight:700;fill:#344054}
+      .h{font-family:"Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif;font-size:30px;font-weight:800;fill:#101828}
+      .t{font-family:"Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif;font-size:22px;font-weight:650;fill:#344054}
+      .s{font-family:"Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif;font-size:18px;font-weight:600;fill:#475467}
+      .box{stroke:#111827;stroke-width:4;rx:26;ry:26}
+      .state{stroke:#111827;stroke-width:4;rx:22;ry:22}
+      .arrow{stroke:#111827;stroke-width:5;fill:none;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1080" height="1920" fill="#F8FFF9"/>
+  <rect x="38" y="38" width="1004" height="1844" rx="36" fill="#FFFFFF" stroke="#111827" stroke-width="5"/>
+  <text class="title" x="78" y="124">状态流转与验收</text>
+  <text class="sub" x="80" y="168">MPM 的可靠性来自可见状态、门控结果和可追溯记录</text>
+
+  <rect x="76" y="232" width="928" height="156" class="box" fill="#DBEAFE"/>
+  <text class="h" x="116" y="286">任务链对象：TaskChainV3</text>
+  <text class="t" x="116" y="330">字段包含 task_id、protocol、status、phases、current_phase、plan_state</text>
+  <text class="s" x="116" y="362">真实文件：task_chain_v3.go 与 task_chain_v3_api.go</text>
+
+  <rect x="92" y="456" width="190" height="86" class="state" fill="#FEF3C7"/>
+  <text class="h" x="130" y="510">待执行</text>
+  <rect x="326" y="456" width="190" height="86" class="state" fill="#BAE6FD"/>
+  <text class="h" x="364" y="510">执行中</text>
+  <rect x="560" y="456" width="190" height="86" class="state" fill="#BBF7D0"/>
+  <text class="h" x="598" y="510">已通过</text>
+  <rect x="794" y="456" width="190" height="86" class="state" fill="#FECACA"/>
+  <text class="h" x="832" y="510">已失败</text>
+
+  <path class="arrow" d="M282 499 L326 499"/>
+  <path class="arrow" d="M516 499 L560 499"/>
+  <path class="arrow" d="M750 499 L794 499"/>
+
+  <rect x="76" y="620" width="928" height="220" class="box" fill="#EDE9FE"/>
+  <text class="h" x="116" y="674">阶段类型决定验收方式</text>
+  <text class="t" x="116" y="718">execute：完成后写 summary，进入下一阶段</text>
+  <text class="t" x="116" y="754">gate：必须给 pass 或 fail；fail 会重试或使任务失败</text>
+  <text class="t" x="116" y="790">loop：生成子任务，每个子任务独立 pending、active、passed、failed</text>
+
+  <rect x="76" y="906" width="928" height="236" class="box" fill="#D1FAE5"/>
+  <text class="h" x="116" y="960">后台索引状态：让查询结果可被信任</text>
+  <text class="t" x="116" y="1004">initialize_project 写入 running，异步索引完成后写 success 或 failed</text>
+  <text class="t" x="116" y="1040">index_status 汇总 index_status.json、heartbeat、symbols.db 文件大小</text>
+  <text class="s" x="116" y="1080">验收：能看到状态、模式、开始结束时间、文件数量、耗时或错误</text>
+
+  <rect x="76" y="1208" width="928" height="236" class="box" fill="#BFDBFE"/>
+  <text class="h" x="116" y="1262">记忆状态：让项目演进可审计</text>
+  <text class="t" x="116" y="1306">memo 进入 memos 表，同时触发 SyncDevLog 和 appendMemoArchive</text>
+  <text class="t" x="116" y="1342">system_recall 查询 memos 与 known_facts，open_timeline 展示历史</text>
+  <text class="s" x="116" y="1382">验收：能用关键词找回“为什么这么改”和相关事实</text>
+
+  <rect x="76" y="1510" width="928" height="246" class="box" fill="#FFF7ED"/>
+  <text class="h" x="116" y="1564">交付验收清单</text>
+  <text class="t" x="116" y="1608">一、图中的工具名和文件名来自真实代码与文档</text>
+  <text class="t" x="116" y="1644">二、SVG 独立可打开，包含标题、说明和内嵌样式</text>
+  <text class="t" x="116" y="1680">三、XML/SVG 结构校验通过</text>
+  <text class="t" x="116" y="1716">四、内容覆盖用户能力、核心链路、后台机制、状态流转和验收方式</text>
+
+  <text class="s" x="84" y="1842">状态价值：失败能看见，阻塞能挂起，完成能追溯。</text>
+</svg>

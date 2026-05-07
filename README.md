@@ -23,6 +23,65 @@ MPM 不负责让模型变聪明。MPM 负责**把活干完**。
 
 ---
 
+## 安装
+
+### 从 Release 安装
+
+从 [Releases](https://github.com/halflifezyf2680/MPM-Coding/releases) 下载：
+
+| 平台 | 文件 |
+|------|------|
+| Windows x64 | `mpm-windows-amd64.zip` |
+| Linux x64 | `mpm-linux-amd64.tar.gz` |
+| macOS Universal | `mpm-darwin-universal.tar.gz` |
+
+解压。让 MCP 客户端指向 `mpm-go`。完事。
+
+### 从 MCP Registry 安装
+
+已在 [MCP Registry](https://modelcontextprotocol.io) 发布：`io.github.halflifezyf2680/mpm-coding`
+
+### 从源码编译
+
+```bash
+git clone https://github.com/halflifezyf2680/MPM-Coding.git
+cd MPM-Coding
+powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1  # 或 ./scripts/build-unix.sh
+```
+
+---
+
+## 快速开始
+
+让 MCP 客户端指向 `mcp-server-go/bin/mpm-go(.exe)`，然后：
+
+```text
+1) initialize_project
+2) 把生成的 _MPM_PROJECT_RULES.md 放进客户端系统规则
+3) 直接提需求——AI 会自动按协议执行
+```
+
+就这样。工具编排交给 AI，决策权在你手上。
+
+### 使用示例
+
+把这段直接贴进 MCP 客户端：
+
+```text
+读取 _MPM_PROJECT_RULES.md 并严格遵守。
+
+任务：修复 UserService.getProfile 的空指针崩溃。
+要求：
+1. 用 code_search 定位函数
+2. 用 code_impact 检查谁在调用它
+3. 修复 Bug
+4. 用 memo 记录为什么这样改
+```
+
+AI 会自动执行：`initialize_project` → `code_search` → `code_impact` → 改代码 → `memo`。
+
+---
+
 ## 原理
 
 ```
@@ -92,75 +151,6 @@ MPM 解决的是另一个问题：**如何用最少的 token 让 AI 精确理解
 | `initialize_project` | 初始化 AST 索引 + 生成项目规则。一次性操作。 |
 | `index_status` | 查看后台索引进度。 |
 | `persona` | 切换 AI 人格，适配不同场景。 |
-
----
-
-## 快速开始
-
-```bash
-# 编译
-# Windows
-powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
-# Linux/macOS
-./scripts/build-unix.sh
-```
-
-让 MCP 客户端指向 `mcp-server-go/bin/mpm-go(.exe)`，然后：
-
-```text
-1) initialize_project
-2) 把生成的 _MPM_PROJECT_RULES.md 放进客户端系统规则
-3) 直接提需求——AI 会自动按协议执行
-```
-
-就这样。工具编排交给 AI，决策权在你手上。
-
----
-
-## 使用示例
-
-把这段直接贴进 MCP 客户端：
-
-```text
-读取 _MPM_PROJECT_RULES.md 并严格遵守。
-
-任务：修复 UserService.getProfile 的空指针崩溃。
-要求：
-1. 用 code_search 定位函数
-2. 用 code_impact 检查谁在调用它
-3. 修复 Bug
-4. 用 memo 记录为什么这样改
-```
-
-AI 会自动执行：`initialize_project` → `code_search` → `code_impact` → 改代码 → `memo`。
-
----
-
-## 安装
-
-### 从 Release 安装
-
-从 [Releases](https://github.com/halflifezyf2680/MPM-Coding/releases) 下载：
-
-| 平台 | 文件 |
-|------|------|
-| Windows x64 | `mpm-windows-amd64.zip` |
-| Linux x64 | `mpm-linux-amd64.tar.gz` |
-| macOS Universal | `mpm-darwin-universal.tar.gz` |
-
-解压。让 MCP 客户端指向 `mpm-go`。完事。
-
-### 从 MCP Registry 安装
-
-已在 [MCP Registry](https://modelcontextprotocol.io) 发布：`io.github.halflifezyf2680/mpm-coding`
-
-### 从源码编译
-
-```bash
-git clone https://github.com/halflifezyf2680/MPM-Coding.git
-cd MPM-Coding
-powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1  # 或 ./scripts/build-unix.sh
-```
 
 ---
 
