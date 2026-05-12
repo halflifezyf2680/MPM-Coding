@@ -78,7 +78,7 @@ This is **attention convergence**: from "guessing files" to "querying symbols", 
 | 8 | `system_hook` | Execution | Block suspend / resume |
 | 9 | `memo` | Memory | Change record (SSOT) |
 | 10 | `system_recall` | Memory | Search history |
-| 11 | `known_facts` | Memory | Archive rules and pitfalls |
+| 11 | `known_facts` | Memory | KnownFact strategy engine |
 | 12 | `persona` | Enhancement | AI personality switching |
 | 13 | `open_timeline` | Enhancement | Project evolution timeline visualization |
 
@@ -305,16 +305,27 @@ Searches: Memos + Known Facts + Task records. Known Facts shown first.
 
 ### 2.11 known_facts
 
-Archive verified rules and pitfalls.
+KnownFact strategy engine. Legacy `type + summarize` saves are still supported; the main path is to recall experience before action and write outcomes back after action.
 
 **Parameters**:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `type` | string | Yes | `铁律` / `避坑` / `规范` / `逻辑` |
-| `summarize` | string | Yes | Description |
+| `mode` | string | No | `before_action` / `after_action` / `maintain` / `status`; empty keeps legacy save behavior |
+| `type` | string | No | Fact type: `pitfall` / `success_pattern` / `rule` / `constraint`; used by legacy saves |
+| `summarize` | string | No | Fact content, used by legacy saves or `mode=add` |
+| `context` | object | No | Current context: task, task_id, intent, phase, risk, files, symbols, tools |
+| `outcome` | object | No | Used by `after_action`: result, signal, summary, adopted_facts, rejected_facts, new_observations |
+| `limit` | int | No | Result limit |
 
-Retrievable via `system_recall`.
+Common calls:
+
+- `mode=before_action`: returns Relevant Known Facts and Strategy for the current context.
+- `mode=after_action`: strengthens/weakens facts and writes new observations as candidates.
+- `mode=status`: shows fact state.
+- `mode=maintain`: shows maintenance guidance.
+
+`system_recall` remains a history search tool and does not own KnownFact strategy evolution.
 
 ---
 

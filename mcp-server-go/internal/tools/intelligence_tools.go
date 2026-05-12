@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"mcp-server-go/internal/core"
 	"mcp-server-go/internal/services"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -27,8 +30,32 @@ type AnalyzeArgs struct {
 
 // FactArgs 事实存档参数
 type FactArgs struct {
-	Type      string `json:"type" jsonschema:"required,description=事实类型 (如：铁律、避坑)"`
-	Summarize string `json:"summarize" jsonschema:"required,description=事实描述"`
+	Mode      string      `json:"mode" jsonschema:"description=模式: before_action / after_action / maintain / status；为空时兼容旧式保存"`
+	Type      string      `json:"type" jsonschema:"description=事实类型 (如：铁律、避坑、success_pattern、pitfall、rule、constraint)"`
+	Summarize string      `json:"summarize" jsonschema:"description=事实描述；旧式保存或 mode=add 时使用"`
+	Context   FactContext `json:"context" jsonschema:"description=当前任务上下文"`
+	Outcome   FactOutcome `json:"outcome" jsonschema:"description=行动结果；after_action 时使用"`
+	Limit     int         `json:"limit" jsonschema:"description=返回数量，默认 3"`
+}
+
+type FactContext struct {
+	Task    string   `json:"task" jsonschema:"description=当前任务描述"`
+	TaskID  string   `json:"task_id" jsonschema:"description=任务ID"`
+	Intent  string   `json:"intent" jsonschema:"description=任务意图"`
+	Phase   string   `json:"phase" jsonschema:"description=当前阶段"`
+	Risk    string   `json:"risk" jsonschema:"description=风险等级"`
+	Files   []string `json:"files" jsonschema:"description=相关文件"`
+	Symbols []string `json:"symbols" jsonschema:"description=相关符号"`
+	Tools   []string `json:"tools" jsonschema:"description=计划使用或刚使用的工具"`
+}
+
+type FactOutcome struct {
+	Result          string   `json:"result" jsonschema:"description=success / failure / corrected / neutral"`
+	Signal          string   `json:"signal" jsonschema:"description=结果信号来源，如 test_passed / gate_failed / user_feedback"`
+	Summary         string   `json:"summary" jsonschema:"description=结果摘要"`
+	AdoptedFacts    []int64  `json:"adopted_facts" jsonschema:"description=本轮采纳的 fact id"`
+	RejectedFacts   []int64  `json:"rejected_facts" jsonschema:"description=本轮明确否定的 fact id"`
+	NewObservations []string `json:"new_observations" jsonschema:"description=本轮新增观察，写入 candidate fact"`
 }
 
 // MissionBriefing 情报包结构
@@ -50,21 +77,32 @@ type MissionControl struct {
 // RegisterIntelligenceTools 注册智能分析工具
 func RegisterIntelligenceTools(s *server.MCPServer, sm *SessionManager, ai *services.ASTIndexer) {
 	s.AddTool(mcp.NewTool("known_facts",
-		mcp.WithDescription(`known_facts - 原子级经验事实存档
+		mcp.WithDescription(`known_facts - KnownFact 策略引擎
 
 用途：
-	  将经过验证的代码规则、铁律或重要的避坑经验存入记忆层，用于后续检索与复用。
+  单入口经验策略工具。行动前召回并选择相关 KnownFact，行动后根据结果增量强化/削弱事实。
+  旧式 type + summarize 保存仍兼容。
 
 参数：
-  type (必填)
-    事实类型，如 "铁律", "避坑", "规范", "逻辑" 等。
-  
-  summarize (必填)
-    事实的具体描述，应简洁明了。
+  mode:
+    - before_action: 行动前，基于 context 返回 Relevant Known Facts 和 Strategy。
+    - after_action: 行动后，基于 outcome 更新事实置信度并生成 candidate fact。
+    - maintain: 查看收敛维护建议。
+    - status: 查看事实库状态。
+    - 空: 兼容旧式保存，使用 type + summarize。
+
+  context:
+    当前任务、阶段、文件、符号、工具和风险。
+
+  outcome:
+    after_action 使用，包含 result、adopted_facts、rejected_facts、new_observations。
 
 示例：
-  known_facts(type="避坑", summarize="修改 context 逻辑前必须先备份 session 数据")
-    -> 保存一条重要的经验法则
+  known_facts(mode="before_action", context={...})
+    -> 返回本轮应遵守的 KnownFact 与策略建议
+
+  known_facts(mode="after_action", outcome={result:"success", adopted_facts:[12]})
+    -> 强化已采纳且成功的事实
 
 触发词：
   "mpm 铁律", "mpm 避坑", "mpm fact"`),
@@ -796,11 +834,366 @@ func wrapSaveFact(sm *SessionManager) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(fmt.Sprintf("参数格式错误: %v", err)), nil
 		}
 
-		id, err := sm.Memory.SaveFact(ctx, args.Type, args.Summarize)
+		mode := strings.ToLower(strings.TrimSpace(args.Mode))
+		if mode == "" {
+			mode = "add"
+		}
+
+		switch mode {
+		case "add", "save":
+			return handleFactAdd(ctx, sm, args)
+		case "before_action":
+			return handleFactBeforeAction(ctx, sm, args)
+		case "after_action":
+			return handleFactAfterAction(ctx, sm, args)
+		case "maintain":
+			return handleFactMaintain(ctx, sm, args)
+		case "status":
+			return handleFactStatus(ctx, sm, args)
+		default:
+			return mcp.NewToolResultError(fmt.Sprintf("未知 mode: %s", args.Mode)), nil
+		}
+	}
+}
+
+func handleFactAdd(ctx context.Context, sm *SessionManager, args FactArgs) (*mcp.CallToolResult, error) {
+	if strings.TrimSpace(args.Summarize) == "" {
+		return mcp.NewToolResultError("保存事实需要 summarize"), nil
+	}
+	factType := strings.TrimSpace(args.Type)
+	if factType == "" {
+		factType = "rule"
+	}
+
+	if strings.TrimSpace(args.Mode) == "" {
+		id, err := sm.Memory.SaveFact(ctx, factType, args.Summarize)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("保存事实失败: %v", err)), nil
 		}
-
-		return mcp.NewToolResultText(fmt.Sprintf("✅ 事实已存入数据库 (ID: %d): [%s] %s", id, args.Type, args.Summarize)), nil
+		return mcp.NewToolResultText(fmt.Sprintf("✅ 事实已存入数据库 (ID: %d): [%s] %s", id, factType, args.Summarize)), nil
 	}
+
+	id, err := sm.Memory.SaveKnownFact(ctx, core.KnownFact{
+		Type:       factType,
+		Summarize:  args.Summarize,
+		Scope:      factScopeFromContext(args.Context),
+		Keywords:   knownFactKeywords(args.Context),
+		Confidence: 0.45,
+		Status:     "candidate",
+		SourceType: "manual",
+		SourceID:   args.Context.TaskID,
+	})
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("保存候选事实失败: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("已新增 candidate KnownFact (ID: %d): [%s] %s", id, factType, args.Summarize)), nil
+}
+
+type scoredFact struct {
+	Fact  core.KnownFact
+	Score float64
+}
+
+func handleFactBeforeAction(ctx context.Context, sm *SessionManager, args FactArgs) (*mcp.CallToolResult, error) {
+	limit := args.Limit
+	if limit <= 0 {
+		limit = 3
+	}
+	if limit > 5 {
+		limit = 5
+	}
+
+	facts, err := sm.Memory.QueryFacts(ctx, knownFactKeywords(args.Context), 30)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("召回 KnownFact 失败: %v", err)), nil
+	}
+
+	var totalHits int
+	for _, f := range facts {
+		totalHits += f.HitCount
+	}
+
+	var scored []scoredFact
+	for _, fact := range facts {
+		status := strings.ToLower(strings.TrimSpace(fact.Status))
+		if status == "rejected" || status == "archived" || status == "superseded" {
+			continue
+		}
+		scored = append(scored, scoredFact{Fact: fact, Score: scoreKnownFact(fact, args.Context, totalHits)})
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		return scored[i].Score > scored[j].Score
+	})
+	if len(scored) > limit {
+		scored = scored[:limit]
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Relevant Known Facts:\n")
+	if len(scored) == 0 {
+		sb.WriteString("- 未命中高相关 KnownFact。\n")
+	} else {
+		for i, item := range scored {
+			_ = sm.Memory.MarkFactExposed(ctx, item.Fact.ID)
+			payload, _ := json.Marshal(map[string]interface{}{
+				"rank":  i + 1,
+				"score": item.Score,
+				"mode":  "before_action",
+			})
+			_, _ = sm.Memory.RecordFactEvent(ctx, core.FactEvent{
+				EventType:        "exposure",
+				FactID:           item.Fact.ID,
+				TaskID:           args.Context.TaskID,
+				Phase:            args.Context.Phase,
+				ContextSignature: knownFactContextSignature(args.Context),
+				PayloadJSON:      string(payload),
+			})
+			sb.WriteString(fmt.Sprintf("- [fact_id=%d confidence=%.2f score=%.2f status=%s] %s\n",
+				item.Fact.ID, item.Fact.Confidence, item.Score, item.Fact.Status, item.Fact.Summarize))
+		}
+	}
+
+	sb.WriteString("\nStrategy:\n")
+	for _, line := range knownFactStrategyLines(args.Context, scored) {
+		sb.WriteString("- " + line + "\n")
+	}
+
+	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func handleFactAfterAction(ctx context.Context, sm *SessionManager, args FactArgs) (*mcp.CallToolResult, error) {
+	result := strings.ToLower(strings.TrimSpace(args.Outcome.Result))
+	if result == "" {
+		result = "neutral"
+	}
+
+	var updated []string
+	for _, factID := range args.Outcome.AdoptedFacts {
+		if err := sm.Memory.ApplyFactOutcome(ctx, factID, true, result); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("更新 fact %d 失败: %v", factID, err)), nil
+		}
+		recordFactOutcomeEvent(ctx, sm, args, factID, "outcome", true)
+		updated = append(updated, fmt.Sprintf("fact %d adopted -> %s", factID, result))
+	}
+
+	rejectResult := result
+	if rejectResult == "success" || rejectResult == "neutral" {
+		rejectResult = "corrected"
+	}
+	for _, factID := range args.Outcome.RejectedFacts {
+		if err := sm.Memory.ApplyFactOutcome(ctx, factID, true, rejectResult); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("削弱 fact %d 失败: %v", factID, err)), nil
+		}
+		recordFactOutcomeEvent(ctx, sm, args, factID, "reject", true)
+		updated = append(updated, fmt.Sprintf("fact %d rejected -> %s", factID, rejectResult))
+	}
+
+	var created []string
+	for _, observation := range args.Outcome.NewObservations {
+		observation = strings.TrimSpace(observation)
+		if observation == "" {
+			continue
+		}
+		factType := "success_pattern"
+		if result == "failure" || result == "corrected" {
+			factType = "pitfall"
+		}
+		id, err := sm.Memory.SaveKnownFact(ctx, core.KnownFact{
+			Type:       factType,
+			Summarize:  observation,
+			Scope:      factScopeFromContext(args.Context),
+			Keywords:   knownFactKeywords(args.Context),
+			Confidence: 0.45,
+			Status:     "candidate",
+			SourceType: "observation",
+			SourceID:   args.Context.TaskID,
+		})
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("新增 observation 失败: %v", err)), nil
+		}
+		payload, _ := json.Marshal(map[string]interface{}{
+			"result":      result,
+			"signal":      args.Outcome.Signal,
+			"summary":     args.Outcome.Summary,
+			"observation": observation,
+		})
+		_, _ = sm.Memory.RecordFactEvent(ctx, core.FactEvent{
+			EventType:        "add",
+			FactID:           id,
+			TaskID:           args.Context.TaskID,
+			Phase:            args.Context.Phase,
+			ContextSignature: knownFactContextSignature(args.Context),
+			PayloadJSON:      string(payload),
+		})
+		created = append(created, fmt.Sprintf("candidate fact %d [%s]", id, factType))
+	}
+
+	var sb strings.Builder
+	sb.WriteString("KnownFact evolution updated.\n")
+	if len(updated) > 0 {
+		sb.WriteString("\nUpdated:\n")
+		for _, line := range updated {
+			sb.WriteString("- " + line + "\n")
+		}
+	}
+	if len(created) > 0 {
+		sb.WriteString("\nCreated:\n")
+		for _, line := range created {
+			sb.WriteString("- " + line + "\n")
+		}
+	}
+	if len(updated) == 0 && len(created) == 0 {
+		sb.WriteString("\nNo fact changes were recorded.\n")
+	}
+	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func handleFactMaintain(ctx context.Context, sm *SessionManager, args FactArgs) (*mcp.CallToolResult, error) {
+	limit := args.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	facts, err := sm.Memory.QueryFacts(ctx, knownFactKeywords(args.Context), limit)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("读取 KnownFact 失败: %v", err)), nil
+	}
+	counts := make(map[string]int)
+	for _, f := range facts {
+		counts[f.Status]++
+	}
+	var sb strings.Builder
+	sb.WriteString("KnownFact maintenance snapshot:\n")
+	for _, status := range []string{"active", "candidate", "rejected", "archived", "superseded"} {
+		if counts[status] > 0 {
+			sb.WriteString(fmt.Sprintf("- %s: %d\n", status, counts[status]))
+		}
+	}
+	sb.WriteString("\nNext:\n")
+	sb.WriteString("- 合并相似 candidate 前，先确认 scope/type 是否一致。\n")
+	sb.WriteString("- rejected/archived 不物理删除，保留事件审计。\n")
+	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func handleFactStatus(ctx context.Context, sm *SessionManager, args FactArgs) (*mcp.CallToolResult, error) {
+	limit := args.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	facts, err := sm.Memory.QueryFacts(ctx, knownFactKeywords(args.Context), limit)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("读取 KnownFact 状态失败: %v", err)), nil
+	}
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("KnownFact status (%d shown):\n", len(facts)))
+	for _, f := range facts {
+		sb.WriteString(fmt.Sprintf("- [%d] %s confidence=%.2f support=%d reject=%d hits=%d: %s\n",
+			f.ID, f.Status, f.Confidence, f.SupportCount, f.RejectCount, f.HitCount, f.Summarize))
+	}
+	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func recordFactOutcomeEvent(ctx context.Context, sm *SessionManager, args FactArgs, factID int64, eventType string, adopted bool) {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"result":  args.Outcome.Result,
+		"signal":  args.Outcome.Signal,
+		"summary": args.Outcome.Summary,
+		"adopted": adopted,
+	})
+	_, _ = sm.Memory.RecordFactEvent(ctx, core.FactEvent{
+		EventType:        eventType,
+		FactID:           factID,
+		TaskID:           args.Context.TaskID,
+		Phase:            args.Context.Phase,
+		ContextSignature: knownFactContextSignature(args.Context),
+		PayloadJSON:      string(payload),
+	})
+}
+
+func scoreKnownFact(f core.KnownFact, ctx FactContext, totalHits int) float64 {
+	contextMatch := knownFactContextMatch(f, ctx)
+	successRate := float64(f.SupportCount) / math.Max(float64(f.AdoptCount), 1)
+	failurePenalty := float64(f.RejectCount) / math.Max(float64(f.AdoptCount), 1)
+	exploration := math.Sqrt(math.Log(float64(totalHits+1)+1) / float64(f.HitCount+1))
+	return contextMatch*0.45 + f.Confidence*0.25 + successRate*0.20 + exploration*0.10 - failurePenalty
+}
+
+func knownFactContextMatch(f core.KnownFact, ctx FactContext) float64 {
+	tokens := strings.Fields(strings.ToLower(knownFactKeywords(ctx)))
+	if len(tokens) == 0 {
+		return 0
+	}
+	haystack := strings.ToLower(strings.Join([]string{f.Type, f.Summarize, f.Scope, f.Keywords}, " "))
+	var hits int
+	for _, token := range tokens {
+		if len(token) < 2 {
+			continue
+		}
+		if strings.Contains(haystack, token) {
+			hits++
+		}
+	}
+	if hits == 0 {
+		return 0
+	}
+	score := float64(hits) / float64(len(tokens))
+	if score > 1 {
+		return 1
+	}
+	return score
+}
+
+func knownFactKeywords(ctx FactContext) string {
+	var parts []string
+	add := func(values ...string) {
+		for _, v := range values {
+			v = strings.TrimSpace(v)
+			if v != "" {
+				parts = append(parts, v)
+			}
+		}
+	}
+	add(ctx.Task, ctx.Intent, ctx.Phase, ctx.Risk)
+	add(ctx.Files...)
+	add(ctx.Symbols...)
+	add(ctx.Tools...)
+	return strings.Join(parts, " ")
+}
+
+func knownFactContextSignature(ctx FactContext) string {
+	return truncateRunes(knownFactKeywords(ctx), 240)
+}
+
+func factScopeFromContext(ctx FactContext) string {
+	if len(ctx.Files) > 0 && strings.TrimSpace(ctx.Files[0]) != "" {
+		return "path:" + strings.TrimSpace(ctx.Files[0])
+	}
+	if len(ctx.Symbols) > 0 && strings.TrimSpace(ctx.Symbols[0]) != "" {
+		return "symbol:" + strings.TrimSpace(ctx.Symbols[0])
+	}
+	if strings.TrimSpace(ctx.TaskID) != "" {
+		return "task:" + strings.TrimSpace(ctx.TaskID)
+	}
+	return "project"
+}
+
+func knownFactStrategyLines(ctx FactContext, facts []scoredFact) []string {
+	var lines []string
+	risk := strings.ToLower(ctx.Risk)
+	intent := strings.ToUpper(ctx.Intent)
+	if risk == "high" || risk == "medium" {
+		lines = append(lines, "先定位影响面，再修改；不要把提示文本当成持久化数据源。")
+	}
+	if intent == "DEBUG" {
+		lines = append(lines, "先复现和确认根因，再使用 after_action 回写失败或成功经验。")
+	} else if intent == "DEVELOP" || intent == "REFACTOR" {
+		lines = append(lines, "优先保持现有调用兼容；完成后用 after_action 记录采纳的 fact 和结果。")
+	}
+	if len(facts) == 0 {
+		lines = append(lines, "本轮没有强相关事实，完成后把可复用观察写入 new_observations。")
+	}
+	if len(lines) == 0 {
+		lines = append(lines, "执行后调用 after_action 回写 outcome，保持 KnownFact 可进化。")
+	}
+	return lines
 }

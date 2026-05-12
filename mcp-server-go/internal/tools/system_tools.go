@@ -3,12 +3,14 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mcp-server-go/internal/core"
 	"mcp-server-go/internal/services"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -34,6 +36,11 @@ type index_build_status struct {
 	Error       string `json:"error,omitempty"`
 }
 
+type openCommandSpec struct {
+	name string
+	args []string
+}
+
 func indexStatusFile(projectRoot string) string {
 	return filepath.Join(projectRoot, core.DataDirName, "index_status.json")
 }
@@ -50,6 +57,38 @@ func writeIndexStatus(projectRoot string, st index_build_status) {
 		return
 	}
 	_ = os.Rename(tmpPath, statusPath)
+}
+
+func buildTimelineOpenCommands(goos string, target string) []openCommandSpec {
+	switch goos {
+	case "windows":
+		return []openCommandSpec{
+			{name: "cmd", args: []string{"/c", "start", "", "msedge", fmt.Sprintf("--app=%s", target)}},
+			{name: "cmd", args: []string{"/c", "start", "", target}},
+		}
+	case "darwin":
+		return []openCommandSpec{
+			{name: "open", args: []string{target}},
+		}
+	default:
+		return []openCommandSpec{
+			{name: "xdg-open", args: []string{target}},
+			{name: "gio", args: []string{"open", target}},
+		}
+	}
+}
+
+func startTimelineTarget(target string) error {
+	var failures []string
+	for _, spec := range buildTimelineOpenCommands(runtime.GOOS, target) {
+		cmd := exec.Command(spec.name, spec.args...)
+		if err := cmd.Start(); err == nil {
+			return nil
+		} else {
+			failures = append(failures, fmt.Sprintf("%s: %v", spec.name, err))
+		}
+	}
+	return errors.New(strings.Join(failures, "; "))
 }
 
 func startAsyncIndexBuild(projectRoot string, ai *services.ASTIndexer, forceFull bool) {
@@ -468,12 +507,8 @@ func wrapOpenTimeline(sm *SessionManager) server.ToolHandlerFunc {
 
 		// 4. 打开浏览器
 		htmlURL := "file:///" + filepath.ToSlash(htmlPath)
-		edgeCmd := exec.Command("cmd", "/c", "start", "msedge", fmt.Sprintf("--app=%s", htmlURL))
-		if err := edgeCmd.Start(); err != nil {
-			fallbackCmd := exec.Command("cmd", "/c", "start", htmlURL)
-			if err := fallbackCmd.Start(); err != nil {
-				return mcp.NewToolResultText(fmt.Sprintf("⚠️ Timeline 已生成但无法自动打开。\n路径: %s", htmlPath)), nil
-			}
+		if err := startTimelineTarget(htmlURL); err != nil {
+			return mcp.NewToolResultText(fmt.Sprintf("⚠️ Timeline 已生成但无法自动打开。\n路径: %s\n错误: %v", htmlPath, err)), nil
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("✅ Timeline 已生成并尝试打开。\n文件: %s", htmlPath)), nil

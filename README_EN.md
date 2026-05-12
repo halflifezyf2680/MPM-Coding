@@ -83,7 +83,7 @@ This is **attention convergence**: the AI no longer needs to blindly search thro
 |------|-------------|
 | `memo` | Record *why* you changed something. Persists across sessions. |
 | `system_recall` | "Did we fix something like this before?" — search history. |
-| `known_facts` | Store hard-won rules so the AI doesn't repeat mistakes. |
+| `known_facts` | KnownFact strategy engine: recall experience before action, write outcomes back after action. |
 
 ### System
 

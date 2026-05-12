@@ -185,7 +185,29 @@ func (m *DatabaseManager) healSchema() error {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			type TEXT,
 			summarize TEXT,
+			scope TEXT DEFAULT 'global',
+			keywords TEXT,
+			confidence REAL DEFAULT 0.6,
+			support_count INTEGER DEFAULT 0,
+			hit_count INTEGER DEFAULT 0,
+			adopt_count INTEGER DEFAULT 0,
+			reject_count INTEGER DEFAULT 0,
+			status TEXT DEFAULT 'active',
+			source_type TEXT DEFAULT 'manual',
+			source_id TEXT,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS fact_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			event_type TEXT NOT NULL,
+			fact_id INTEGER,
+			task_id TEXT,
+			phase TEXT,
+			context_signature TEXT,
+			payload_json TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (fact_id) REFERENCES known_facts(id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS system_state (
 			key TEXT PRIMARY KEY,
@@ -234,26 +256,24 @@ func (m *DatabaseManager) healSchema() error {
 		}
 	}
 
-	// 2. 索引优化
-	indexes := []string{
-		"CREATE INDEX IF NOT EXISTS idx_memos_entity ON memos(entity)",
-		"CREATE INDEX IF NOT EXISTS idx_memos_category ON memos(category)",
-		"CREATE INDEX IF NOT EXISTS idx_memos_timestamp ON memos(timestamp DESC)",
-		"CREATE INDEX IF NOT EXISTS idx_task_chain_events_task ON task_chain_events(task_id, created_at)",
-	}
-	for _, idx := range indexes {
-		if _, err := m.db.Exec(idx); err != nil {
-			return err
-		}
-	}
-
-	// 3. 数据迁移（ADD COLUMN）
+	// 2. 数据迁移（ADD COLUMN）
 	migrations := []struct {
 		sql  string
 		name string
 	}{
 		{"ALTER TABLE task_chains ADD COLUMN reinit_count INTEGER DEFAULT 0", "reinit_count"},
 		{"ALTER TABLE task_chains ADD COLUMN plan_state TEXT", "plan_state"},
+		{"ALTER TABLE known_facts ADD COLUMN scope TEXT DEFAULT 'global'", "known_facts.scope"},
+		{"ALTER TABLE known_facts ADD COLUMN keywords TEXT", "known_facts.keywords"},
+		{"ALTER TABLE known_facts ADD COLUMN confidence REAL DEFAULT 0.6", "known_facts.confidence"},
+		{"ALTER TABLE known_facts ADD COLUMN support_count INTEGER DEFAULT 0", "known_facts.support_count"},
+		{"ALTER TABLE known_facts ADD COLUMN hit_count INTEGER DEFAULT 0", "known_facts.hit_count"},
+		{"ALTER TABLE known_facts ADD COLUMN adopt_count INTEGER DEFAULT 0", "known_facts.adopt_count"},
+		{"ALTER TABLE known_facts ADD COLUMN reject_count INTEGER DEFAULT 0", "known_facts.reject_count"},
+		{"ALTER TABLE known_facts ADD COLUMN status TEXT DEFAULT 'active'", "known_facts.status"},
+		{"ALTER TABLE known_facts ADD COLUMN source_type TEXT DEFAULT 'manual'", "known_facts.source_type"},
+		{"ALTER TABLE known_facts ADD COLUMN source_id TEXT", "known_facts.source_id"},
+		{"ALTER TABLE known_facts ADD COLUMN updated_at DATETIME", "known_facts.updated_at"},
 	}
 	for _, mig := range migrations {
 		err := with_sqlite_busy_retry(func() error {
@@ -271,6 +291,27 @@ func (m *DatabaseManager) healSchema() error {
 			}
 		} else {
 			fmt.Fprintf(os.Stderr, "[DB][INFO] Migration %s applied\n", mig.name)
+		}
+	}
+
+	if _, err := m.db.Exec("UPDATE known_facts SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP) WHERE updated_at IS NULL"); err != nil {
+		return err
+	}
+
+	// 3. 索引优化。索引必须在旧库迁移之后创建，否则旧 known_facts 表缺少 status/scope 时会中断自愈。
+	indexes := []string{
+		"CREATE INDEX IF NOT EXISTS idx_memos_entity ON memos(entity)",
+		"CREATE INDEX IF NOT EXISTS idx_memos_category ON memos(category)",
+		"CREATE INDEX IF NOT EXISTS idx_memos_timestamp ON memos(timestamp DESC)",
+		"CREATE INDEX IF NOT EXISTS idx_known_facts_status ON known_facts(status)",
+		"CREATE INDEX IF NOT EXISTS idx_known_facts_scope ON known_facts(scope)",
+		"CREATE INDEX IF NOT EXISTS idx_fact_events_fact ON fact_events(fact_id, created_at)",
+		"CREATE INDEX IF NOT EXISTS idx_fact_events_task ON fact_events(task_id, created_at)",
+		"CREATE INDEX IF NOT EXISTS idx_task_chain_events_task ON task_chain_events(task_id, created_at)",
+	}
+	for _, idx := range indexes {
+		if _, err := m.db.Exec(idx); err != nil {
+			return err
 		}
 	}
 

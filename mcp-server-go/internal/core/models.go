@@ -53,10 +53,33 @@ type TaskStep struct {
 
 // KnownFact 原子化事实
 type KnownFact struct {
-	ID        int64     `db:"id"`
-	Type      string    `db:"type"`
-	Summarize string    `db:"summarize"`
-	CreatedAt time.Time `db:"created_at"`
+	ID           int64     `db:"id"`
+	Type         string    `db:"type"`
+	Summarize    string    `db:"summarize"`
+	Scope        string    `db:"scope"`
+	Keywords     string    `db:"keywords"`
+	Confidence   float64   `db:"confidence"`
+	SupportCount int       `db:"support_count"`
+	HitCount     int       `db:"hit_count"`
+	AdoptCount   int       `db:"adopt_count"`
+	RejectCount  int       `db:"reject_count"`
+	Status       string    `db:"status"`
+	SourceType   string    `db:"source_type"`
+	SourceID     string    `db:"source_id"`
+	CreatedAt    time.Time `db:"created_at"`
+	UpdatedAt    time.Time `db:"updated_at"`
+}
+
+// FactEvent KnownFact 策略事件
+type FactEvent struct {
+	ID               int64     `db:"id"`
+	EventType        string    `db:"event_type"`
+	FactID           int64     `db:"fact_id"`
+	TaskID           string    `db:"task_id"`
+	Phase            string    `db:"phase"`
+	ContextSignature string    `db:"context_signature"`
+	PayloadJSON      string    `db:"payload_json"`
+	CreatedAt        time.Time `db:"created_at"`
 }
 
 // ConstraintRule 约束规则

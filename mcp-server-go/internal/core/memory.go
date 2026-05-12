@@ -560,7 +560,21 @@ func (m *MemoryLayer) QueryTasks(ctx context.Context, keywords string, limit int
 func (m *MemoryLayer) QueryFacts(ctx context.Context, keywords string, limit int) ([]KnownFact, error) {
 	query := `
 		SELECT 
-			id, type, summarize, created_at 
+			id,
+			type,
+			summarize,
+			COALESCE(scope, 'global'),
+			COALESCE(keywords, ''),
+			COALESCE(confidence, 0.6),
+			COALESCE(support_count, 0),
+			COALESCE(hit_count, 0),
+			COALESCE(adopt_count, 0),
+			COALESCE(reject_count, 0),
+			COALESCE(status, 'active'),
+			COALESCE(source_type, 'manual'),
+			COALESCE(source_id, ''),
+			created_at,
+			COALESCE(updated_at, created_at)
 		FROM known_facts WHERE 1=1`
 	var params []interface{}
 
@@ -569,9 +583,9 @@ func (m *MemoryLayer) QueryFacts(ctx context.Context, keywords string, limit int
 		if len(words) > 0 {
 			var subConditions []string
 			for _, w := range words {
-				subConditions = append(subConditions, "(summarize LIKE ? OR type LIKE ?)")
+				subConditions = append(subConditions, "(summarize LIKE ? OR type LIKE ? OR keywords LIKE ? OR scope LIKE ?)")
 				pattern := "%" + w + "%"
-				params = append(params, pattern, pattern)
+				params = append(params, pattern, pattern, pattern, pattern)
 			}
 			query += " AND (" + strings.Join(subConditions, " OR ") + ")"
 		}
@@ -589,9 +603,32 @@ func (m *MemoryLayer) QueryFacts(ctx context.Context, keywords string, limit int
 	var results []KnownFact
 	for rows.Next() {
 		var f KnownFact
-		err := rows.Scan(&f.ID, &f.Type, &f.Summarize, &f.CreatedAt)
+		var createdAt, updatedAt string
+		err := rows.Scan(
+			&f.ID,
+			&f.Type,
+			&f.Summarize,
+			&f.Scope,
+			&f.Keywords,
+			&f.Confidence,
+			&f.SupportCount,
+			&f.HitCount,
+			&f.AdoptCount,
+			&f.RejectCount,
+			&f.Status,
+			&f.SourceType,
+			&f.SourceID,
+			&createdAt,
+			&updatedAt,
+		)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("扫描 fact 结果失败: %w", err)
+		}
+		f.CreatedAt = parseMemoTimestamp(createdAt)
+		if strings.TrimSpace(updatedAt) == "" {
+			f.UpdatedAt = f.CreatedAt
+		} else {
+			f.UpdatedAt = parseMemoTimestamp(updatedAt)
 		}
 		results = append(results, f)
 	}
@@ -603,12 +640,167 @@ func (m *MemoryLayer) QueryFacts(ctx context.Context, keywords string, limit int
 
 // SaveFact 保存事实
 func (m *MemoryLayer) SaveFact(ctx context.Context, factType, summarize string) (int64, error) {
-	query := "INSERT INTO known_facts (type, summarize, created_at) VALUES (?, ?, ?)"
-	res, err := m.dbManager.Exec(query, factType, summarize, time.Now())
+	now := time.Now()
+	query := `INSERT INTO known_facts
+		(type, summarize, scope, keywords, confidence, support_count, hit_count, adopt_count, reject_count, status, source_type, source_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	res, err := m.dbManager.Exec(query,
+		factType, summarize, "global", "", 0.6, 0, 0, 0, 0, "active", "manual", "", now, now)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// SaveKnownFact 保存结构化事实
+func (m *MemoryLayer) SaveKnownFact(ctx context.Context, fact KnownFact) (int64, error) {
+	now := time.Now()
+	if fact.Type == "" {
+		fact.Type = "rule"
+	}
+	if fact.Scope == "" {
+		fact.Scope = "global"
+	}
+	if fact.Confidence == 0 {
+		fact.Confidence = 0.45
+	}
+	if fact.Status == "" {
+		fact.Status = "candidate"
+	}
+	if fact.SourceType == "" {
+		fact.SourceType = "manual"
+	}
+
+	query := `INSERT INTO known_facts
+		(type, summarize, scope, keywords, confidence, support_count, hit_count, adopt_count, reject_count, status, source_type, source_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	res, err := m.dbManager.Exec(query,
+		fact.Type, fact.Summarize, fact.Scope, fact.Keywords, fact.Confidence,
+		fact.SupportCount, fact.HitCount, fact.AdoptCount, fact.RejectCount,
+		fact.Status, fact.SourceType, fact.SourceID, now, now)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// RecordFactEvent 记录 KnownFact 策略事件
+func (m *MemoryLayer) RecordFactEvent(ctx context.Context, event FactEvent) (int64, error) {
+	query := `INSERT INTO fact_events
+		(event_type, fact_id, task_id, phase, context_signature, payload_json, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`
+	res, err := m.dbManager.Exec(query,
+		event.EventType, event.FactID, event.TaskID, event.Phase,
+		event.ContextSignature, event.PayloadJSON, time.Now())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// QueryFactEvents 查询 KnownFact 策略事件
+func (m *MemoryLayer) QueryFactEvents(ctx context.Context, factID int64, limit int) ([]FactEvent, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	query := `SELECT
+			id,
+			event_type,
+			COALESCE(fact_id, 0),
+			COALESCE(task_id, ''),
+			COALESCE(phase, ''),
+			COALESCE(context_signature, ''),
+			COALESCE(payload_json, ''),
+			created_at
+		FROM fact_events WHERE 1=1`
+	var params []interface{}
+	if factID > 0 {
+		query += " AND fact_id = ?"
+		params = append(params, factID)
+	}
+	query += " ORDER BY id DESC LIMIT ?"
+	params = append(params, limit)
+
+	rows, err := m.dbManager.Query(query, params...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []FactEvent
+	for rows.Next() {
+		var e FactEvent
+		var createdAt string
+		if err := rows.Scan(
+			&e.ID,
+			&e.EventType,
+			&e.FactID,
+			&e.TaskID,
+			&e.Phase,
+			&e.ContextSignature,
+			&e.PayloadJSON,
+			&createdAt,
+		); err != nil {
+			return nil, fmt.Errorf("扫描 fact event 结果失败: %w", err)
+		}
+		e.CreatedAt = parseMemoTimestamp(createdAt)
+		results = append(results, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历 fact event 结果失败: %w", err)
+	}
+	return results, nil
+}
+
+// MarkFactExposed records that a fact was shown to the agent.
+func (m *MemoryLayer) MarkFactExposed(ctx context.Context, factID int64) error {
+	_, err := m.dbManager.Exec(
+		"UPDATE known_facts SET hit_count = COALESCE(hit_count, 0) + 1, updated_at = ? WHERE id = ?",
+		time.Now(), factID)
+	return err
+}
+
+// ApplyFactOutcome updates a fact from an observed task result.
+func (m *MemoryLayer) ApplyFactOutcome(ctx context.Context, factID int64, adopted bool, result string) error {
+	result = strings.ToLower(strings.TrimSpace(result))
+
+	var query string
+	switch {
+	case adopted && result == "success":
+		query = `UPDATE known_facts
+			SET confidence = confidence + (0.10 * (1.0 - confidence)),
+				support_count = COALESCE(support_count, 0) + 1,
+				adopt_count = COALESCE(adopt_count, 0) + 1,
+				updated_at = ?
+			WHERE id = ?`
+	case adopted && (result == "failure" || result == "corrected"):
+		query = `UPDATE known_facts
+			SET confidence = confidence - (0.20 * confidence),
+				reject_count = COALESCE(reject_count, 0) + 1,
+				adopt_count = COALESCE(adopt_count, 0) + 1,
+				updated_at = ?
+			WHERE id = ?`
+	default:
+		query = `UPDATE known_facts
+			SET confidence = confidence - (0.02 * confidence),
+				updated_at = ?
+			WHERE id = ?`
+	}
+
+	if _, err := m.dbManager.Exec(query, time.Now(), factID); err != nil {
+		return err
+	}
+
+	_, err := m.dbManager.Exec(`UPDATE known_facts
+		SET status = CASE
+			WHEN confidence >= 0.75 AND support_count >= 3 THEN 'active'
+			WHEN confidence < 0.25 AND reject_count >= 2 THEN 'rejected'
+			ELSE status
+		END,
+		updated_at = ?
+		WHERE id = ?`, time.Now(), factID)
+	return err
 }
 
 // GetRecentTasks 获取近期任务
