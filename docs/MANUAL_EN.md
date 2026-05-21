@@ -325,6 +325,8 @@ Common calls:
 - `mode=status`: shows fact state.
 - `mode=maintain`: shows maintenance guidance.
 
+**`new_observations` guidelines**: Only write reusable experience (format: "When X, should/should not Y"). Do not write task confirmations (e.g. "Successfully fixed...") or action logs. Persisted to `.claude/CLAUDE.md` and `AGENTS.md`; adopted entries are not persisted.
+
 `system_recall` remains a history search tool and does not own KnownFact strategy evolution.
 
 ---

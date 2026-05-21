@@ -7,6 +7,7 @@ import (
 	"math"
 	"mcp-server-go/internal/core"
 	"mcp-server-go/internal/services"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -96,6 +97,12 @@ func RegisterIntelligenceTools(s *server.MCPServer, sm *SessionManager, ai *serv
 
   outcome:
     after_action 使用，包含 result、adopted_facts、rejected_facts、new_observations。
+	  new_observations 写入指引（重要）：
+	    只写可复用的经验，格式为"在XX条件下应该/不应该YY"。
+	    不要写任务完成确认（如"Successfully fixed..."、"Done..."）。
+	    不要写本次操作的流水账（如"Added button to page"）。
+	    好的示例："ESP32 BLE连接断开后必须延迟500ms再重连，否则固件crash"
+	    坏的示例："Successfully fixed the BLE connection issue"
 
 示例：
   known_facts(mode="before_action", context={...})
@@ -1046,7 +1053,174 @@ func handleFactAfterAction(ctx context.Context, sm *SessionManager, args FactArg
 	if len(updated) == 0 && len(created) == 0 {
 		sb.WriteString("\nNo fact changes were recorded.\n")
 	}
+
+
+	// 持久化到 .claude/CLAUDE.md + 项目级 AGENTS.md
+	if len(updated) > 0 || len(created) > 0 {
+		signal, err := persistFactsToFiles(sm.ProjectRoot, args)
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("\n⚠️ 事实持久化失败: %v\n", err))
+		}
+		if signal != "" {
+			sb.WriteString("\n" + signal + "\n")
+		}
+	}
+
 	return mcp.NewToolResultText(sb.String()), nil
+}
+
+const (
+	factMaxEntryRunes     = 200
+	factDedupThreshold    = 50
+	factCompressThreshold = 70
+	factSectionMarker     = "## MPM Known Facts"
+	factSectionEndMarker  = "<!-- MPM_KNOWN_FACTS_END -->"
+)
+
+// persistFactsToFiles 将事实持久化到 .claude/CLAUDE.md 和项目级 AGENTS.md。
+// 返回阈值信号（供 AI 客户端执行去重/压缩）和可能的错误。
+func persistFactsToFiles(projectRoot string, args FactArgs) (string, error) {
+	if projectRoot == "" {
+		return "", nil
+	}
+
+	var additions []string
+	result := strings.ToLower(strings.TrimSpace(args.Outcome.Result))
+
+	for _, obs := range args.Outcome.NewObservations {
+		obs = strings.TrimSpace(obs)
+		if obs == "" {
+			continue
+		}
+		obs = truncateRunes(obs, factMaxEntryRunes)
+		if result == "failure" || result == "corrected" {
+			additions = append(additions, fmt.Sprintf("- [pitfall] %s", obs))
+		} else {
+			additions = append(additions, fmt.Sprintf("- [success_pattern] %s", obs))
+		}
+	}
+
+	if len(additions) == 0 {
+		return "", nil
+	}
+
+	targets := []struct {
+		path string
+		name string
+	}{
+		{filepath.Join(projectRoot, ".claude", "CLAUDE.md"), "CLAUDE.md"},
+		{filepath.Join(projectRoot, "AGENTS.md"), "AGENTS.md"},
+	}
+
+	var signal string
+	var errs []string
+	for _, t := range targets {
+		prevCount, newCount, err := writeFactSection(t.path, additions)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", t.name, err))
+			continue
+		}
+		if s := checkFactSignal(prevCount, newCount); s != "" && signal == "" {
+			signal = s
+		}
+	}
+
+	if len(errs) > 0 {
+		return signal, fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return signal, nil
+}
+
+// writeFactSection 将事实条目追加到单个 markdown 文件。
+// 返回写入前条目数和写入后条目数。
+func writeFactSection(filePath string, additions []string) (prevCount, newCount int, err error) {
+	dir := filepath.Dir(filePath)
+	if err = os.MkdirAll(dir, 0755); err != nil {
+		return 0, 0, fmt.Errorf("创建目录失败: %w", err)
+	}
+
+	existing, _ := os.ReadFile(filePath)
+	content := string(existing)
+
+	var newAdditions []string
+	for _, line := range additions {
+		if !strings.Contains(content, line) {
+			newAdditions = append(newAdditions, line)
+		}
+	}
+
+	var allEntries []string
+	var newContent string
+
+	if strings.Contains(content, factSectionMarker) {
+		start := strings.Index(content, factSectionMarker)
+		end := strings.Index(content, factSectionEndMarker)
+		endOffset := len(content)
+		if end >= 0 {
+			endOffset = end + len(factSectionEndMarker)
+		}
+
+		oldSection := content[start:endOffset]
+		for _, line := range strings.Split(oldSection, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "- ") {
+				allEntries = append(allEntries, strings.TrimSpace(line))
+			}
+		}
+		prevCount = len(allEntries)
+		allEntries = append(allEntries, newAdditions...)
+		newCount = len(allEntries)
+
+		var section strings.Builder
+		section.WriteString(factSectionMarker + "\n")
+		section.WriteString("<!-- Auto-synced from MPM known_facts. Do not edit manually. -->\n")
+		for _, line := range allEntries {
+			section.WriteString(line + "\n")
+		}
+		section.WriteString(factSectionEndMarker + "\n")
+
+		newContent = content[:start] + section.String() + content[endOffset:]
+	} else {
+		allEntries = newAdditions
+		prevCount = 0
+		newCount = len(allEntries)
+
+		newContent = content
+		if !strings.HasSuffix(newContent, "\n") {
+			newContent += "\n"
+		}
+		newContent += "\n" + factSectionMarker + "\n"
+		newContent += "<!-- Auto-synced from MPM known_facts. Do not edit manually. -->\n"
+		for _, line := range allEntries {
+			newContent += line + "\n"
+		}
+		newContent += factSectionEndMarker + "\n"
+	}
+
+	if len(newAdditions) == 0 {
+		return prevCount, newCount, nil
+	}
+
+	tmpPath := filePath + ".tmp"
+	if err = os.WriteFile(tmpPath, []byte(newContent), 0644); err != nil {
+		return 0, 0, fmt.Errorf("写入临时文件失败: %w", err)
+	}
+	if err = os.Rename(tmpPath, filePath); err != nil {
+		return 0, 0, fmt.Errorf("重命名失败: %w", err)
+	}
+
+	return prevCount, newCount, nil
+}
+
+// checkFactSignal 检查条目数是否跨越阈值，返回信号给 AI 客户端。
+// 死区：只在向上跨越阈值时触发，避免反复震荡。
+func checkFactSignal(prevCount, newCount int) string {
+	if prevCount <= factCompressThreshold && newCount > factCompressThreshold {
+		return fmt.Sprintf("📌 Fact section: %d entries (compress threshold: %d). Recommend: summarize the first 20 entries into fewer, write back the cleaned section.", newCount, factCompressThreshold)
+	}
+	if prevCount < factDedupThreshold && newCount >= factDedupThreshold {
+		return fmt.Sprintf("📌 Fact section: %d entries (dedup threshold: %d). Recommend: read the section, deduplicate and merge similar entries, write back.", newCount, factDedupThreshold)
+	}
+	return ""
 }
 
 func handleFactMaintain(ctx context.Context, sm *SessionManager, args FactArgs) (*mcp.CallToolResult, error) {
@@ -1176,6 +1350,7 @@ func factScopeFromContext(ctx FactContext) string {
 	}
 	return "project"
 }
+
 
 func knownFactStrategyLines(ctx FactContext, facts []scoredFact) []string {
 	var lines []string

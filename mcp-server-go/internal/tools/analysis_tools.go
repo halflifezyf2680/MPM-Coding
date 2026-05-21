@@ -28,11 +28,11 @@ type ProjectMapArgs struct {
 
 // FlowTraceArgs 业务流程追踪参数
 type FlowTraceArgs struct {
-	SymbolName string `json:"symbol_name" jsonschema:"description=入口符号名（函数/类，与 file_path 二选一；若同时提供则优先 symbol_name）"`
-	FilePath   string `json:"file_path" jsonschema:"description=目标文件路径（与 symbol_name 二选一）"`
-	Scope      string `json:"scope" jsonschema:"description=限定范围（目录，超大仓库建议必填）"`
+	SymbolName string `json:"symbol_name" jsonschema:"description=纯函数名或类名，不含路径和点号。例如 handleRequest，不要填 internal/pkg/handleRequest。与 file_path 二选一，优先使用此项"`
+	FilePath   string `json:"file_path" jsonschema:"description=纯文件路径，不含函数名。例如 internal/tools/analysis.go，不要填 internal/tools/analysis.go:handleRequest。与 symbol_name 二选一"`
+	Scope      string `json:"scope" jsonschema:"description=项目内相对目录路径，例如 internal/services。留空表示整个项目"`
 	Direction  string `json:"direction" jsonschema:"default=both,enum=backward,enum=forward,enum=both,description=追踪方向"`
-	Mode       string `json:"mode" jsonschema:"default=brief,enum=brief,enum=standard,enum=deep,description=输出层级（brief/standard/deep）"`
+	Mode       string `json:"mode" jsonschema:"default=brief,enum=brief,enum=standard,enum=deep,description=输出层级"`
 	MaxNodes   int    `json:"max_nodes" jsonschema:"default=40,description=输出节点上限"`
 }
 
@@ -96,22 +96,26 @@ func RegisterAnalysisTools(s *server.MCPServer, sm *SessionManager, ai *services
 用途：
   给 LLM 建立代码阅读主链：先定位入口，再看上下游依赖，按关键节点顺序阅读。
 
-参数速查：
-  入口（二选一，优先 symbol_name）:
-    symbol_name  函数/类名（不含路径）
-    file_path    文件路径（不含函数名）
-  
-  可选:
-    scope        限定目录（大项目建议填）
-    direction    both|forward|backward（默认 both）
-    mode         brief|standard|deep（默认 brief）
-    max_nodes    输出节点上限（默认 40）
+⚠️ symbol_name 和 file_path 二选一，只填一个：
+  - 有函数/类名 → 填 symbol_name，例如 "handleRequest"
+  - 只有文件路径 → 填 file_path，例如 "internal/tools/analysis.go"
+  - 不要两个都填，不要在 symbol_name 里塞路径
 
-⚠️ 注意：symbol_name 只填函数/类名，不要填文件路径或基名。
+参数：
+  symbol_name  纯函数名或类名（优先使用）
+  file_path    纯文件路径（不含函数名）
+  scope        限定目录（大项目建议填），例如 "internal/services"
+  direction    both|forward|backward（默认 both）
+  mode         brief|standard|deep（默认 brief）
+  max_nodes    输出节点上限（默认 40）
 
-完整调用示例：
+正确示例：
   { "symbol_name": "handleRequest", "scope": "internal/services" }
   { "file_path": "internal/tools/analysis.go", "direction": "forward" }
+
+错误示例（不要这样填）：
+  ❌ { "symbol_name": "internal/tools/handleRequest" }  ← 路径塞进了 symbol_name
+  ❌ { "symbol_name": "handleRequest", "file_path": "tools/analysis.go" }  ← 两个都填了
 
 触发词：
   "mpm 流程", "mpm flow"`),
