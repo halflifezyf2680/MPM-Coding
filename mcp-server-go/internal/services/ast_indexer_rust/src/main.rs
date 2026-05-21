@@ -79,6 +79,10 @@ struct Args {
     /// Force full parse on huge repositories (disable bootstrap strategy)
     #[arg(long, default_value_t = false)]
     force_full: bool,
+
+    /// Path to a file containing changed file paths (one per line) for incremental indexing
+    #[arg(long)]
+    changed_files: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -542,20 +546,39 @@ fn run_indexer(args: &Args, heartbeat_path: &Path) -> anyhow::Result<()> {
         .unwrap_or_default();
 
     println!("Scanning directory...");
-    let entries: Vec<PathBuf> = builder
-        .build()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
-        .map(|e| e.path().to_path_buf())
-        .filter(|p| {
-            if allowed_exts.is_empty() {
-                return true;
-            }
-            p.extension()
-                .map(|e| allowed_exts.contains(e.to_str().unwrap_or("")))
-                .unwrap_or(false)
-        })
-        .collect();
+    let entries: Vec<PathBuf> = if let Some(changed_files_path) = &args.changed_files {
+        // Fast path: only index files listed in the changed-files manifest
+        let manifest = std::fs::read_to_string(changed_files_path)
+            .map_err(|e| anyhow::anyhow!("Failed to read changed-files manifest {}: {}", changed_files_path, e))?;
+        manifest
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|line| {
+                let rel = line.trim();
+                let full = Path::new(&args.project).join(rel);
+                if full.exists() {
+                    Some(full)
+                } else {
+                    None // File was deleted, will be cleaned up separately
+                }
+            })
+            .collect()
+    } else {
+        builder
+            .build()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+            .map(|e| e.path().to_path_buf())
+            .filter(|p| {
+                if allowed_exts.is_empty() {
+                    return true;
+                }
+                p.extension()
+                    .map(|e| allowed_exts.contains(e.to_str().unwrap_or("")))
+                    .unwrap_or(false)
+            })
+            .collect()
+    };
 
     println!("Found {} files", entries.len());
 

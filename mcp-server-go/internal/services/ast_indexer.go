@@ -943,6 +943,53 @@ func (ai *ASTIndexer) IndexScope(projectRoot string, scope string) (*IndexResult
 	return ai.indexWithOptions(projectRoot, scope, false)
 }
 
+// IndexFiles 按指定文件列表增量刷新索引（用于文件监控触发的懒更新）
+func (ai *ASTIndexer) IndexFiles(projectRoot string, files []string) (*IndexResult, error) {
+	if len(files) == 0 {
+		return &IndexResult{Status: "cached"}, nil
+	}
+
+	dbPath := getDBPath(projectRoot)
+	outputPath := getOutputPath(projectRoot, "index")
+	defer os.Remove(outputPath)
+
+	mpmData := filepath.Join(projectRoot, core.DataDirName)
+	_ = os.MkdirAll(mpmData, 0755)
+
+	// 将文件列表写入临时文件传给 Rust 端
+	fileListPath := outputPath + ".files"
+	fileListContent := strings.Join(files, "\n")
+	if err := os.WriteFile(fileListPath, []byte(fileListContent), 0644); err != nil {
+		return nil, fmt.Errorf("写入文件列表失败: %w", err)
+	}
+	defer os.Remove(fileListPath)
+
+	args := []string{
+		"--mode", "index",
+		"--project", projectRoot,
+		"--db", dbPath,
+		"--output", outputPath,
+		"--changed-files", fileListPath,
+	}
+
+	if err := ai.runIndexCommand(projectRoot, args); err != nil {
+		return nil, fmt.Errorf("增量索引失败: %w", err)
+	}
+
+	ai.markIndexFresh(projectRoot)
+
+	data, err := os.ReadFile(outputPath)
+	if err != nil {
+		return &IndexResult{Status: "success"}, nil
+	}
+
+	var result IndexResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return &IndexResult{Status: "success"}, nil
+	}
+	return &result, nil
+}
+
 // AnalyzeNamingStyle 分析项目命名风格
 func (ai *ASTIndexer) AnalyzeNamingStyle(projectRoot string) (*NamingAnalysis, error) {
 	// 1. 确保索引存在 (且尝试刷新)

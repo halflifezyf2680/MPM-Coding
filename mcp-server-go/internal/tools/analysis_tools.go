@@ -540,6 +540,7 @@ func buildFlowSnapshot(ai *services.ASTIndexer, projectRoot string, node *servic
 func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		_ = ctx
+		sm.ensureFresh()
 		var args FlowTraceArgs
 		if err := request.BindArguments(&args); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("参数错误: %v", err)), nil
@@ -886,6 +887,7 @@ func wrapImpact(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerF
 		if sm.ProjectRoot == "" {
 			return mcp.NewToolResultError("项目尚未初始化，请先执行 initialize_project。"), nil
 		}
+			sm.ensureFresh()
 
 		// 默认方向
 		if args.Direction == "" {

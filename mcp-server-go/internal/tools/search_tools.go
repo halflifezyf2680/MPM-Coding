@@ -49,6 +49,7 @@ func wrapSearch(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerF
 		if sm.ProjectRoot == "" {
 			return mcp.NewToolResultError("项目尚未初始化，请先执行 initialize_project。"), nil
 		}
+			sm.ensureFresh()
 
 		var args SearchArgs
 		if err := request.BindArguments(&args); err != nil {

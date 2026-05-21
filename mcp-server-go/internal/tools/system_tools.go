@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -150,6 +151,11 @@ type SessionManager struct {
 	ProjectRoot   string
 	TaskChainsV3  map[string]*TaskChainV3   // 协议状态机任务链
 	AnalysisState map[string]*AnalysisState // 历史遗留的分析状态缓存（兼容保留）
+
+	mu         sync.Mutex
+	watcher    *services.FileWatcher
+	ai         *services.ASTIndexer
+	staleFiles []string // watcher 回调写入，ensureFresh 消费
 }
 
 // AnalysisState 第一步分析结果（临时存储）
@@ -175,6 +181,53 @@ type CodeAnchor struct {
 type Guardrails struct {
 	Critical []string `json:"critical"`
 	Advisory []string `json:"advisory"`
+}
+
+// StartWatcher 启动文件监控，在 initialize_project 成功后调用
+func (sm *SessionManager) StartWatcher(projectRoot string, ai *services.ASTIndexer) {
+	sm.ai = ai
+	w, err := services.NewFileWatcher(projectRoot, services.WatcherConfig{
+		DebounceMs: 2000,
+		OnStale: func(changedFiles []string) {
+			sm.mu.Lock()
+			sm.staleFiles = append(sm.staleFiles, changedFiles...)
+			sm.mu.Unlock()
+		},
+	})
+	if err != nil {
+		return // 监控启动失败不阻塞正常使用
+	}
+	if err := w.Start(); err != nil {
+		return
+	}
+	sm.watcher = w
+}
+
+// StopWatcher 停止文件监控
+func (sm *SessionManager) StopWatcher() {
+	if sm.watcher != nil {
+		sm.watcher.Stop()
+		sm.watcher = nil
+	}
+}
+
+// ensureFresh 检查是否有文件变更，如果有则触发增量索引
+func (sm *SessionManager) ensureFresh() {
+	if sm.watcher == nil || sm.ai == nil {
+		return
+	}
+
+	sm.mu.Lock()
+	files := sm.staleFiles
+	sm.staleFiles = nil
+	sm.mu.Unlock()
+
+	if len(files) == 0 {
+		return
+	}
+
+	// 增量索引变更文件
+	sm.ai.IndexFiles(sm.ProjectRoot, files)
 }
 
 // SystemRecallArgs 历史召回参数
@@ -359,6 +412,8 @@ func wrapInit(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerFun
 
 		// 8. 异步启动索引，避免大项目初始化阻塞/超时
 		startAsyncIndexBuild(absRoot, ai, args.ForceFullIndex)
+	// 9. 启动文件监控（懒更新：变更只标记 stale，查询时触发增量索引）
+		sm.StartWatcher(absRoot, ai)
 		statusPath := filepath.ToSlash(indexStatusFile(absRoot))
 		mode := "auto"
 		if args.ForceFullIndex {
