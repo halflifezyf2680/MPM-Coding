@@ -11,15 +11,15 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+var version = "dev"
+
 func init() {
-	// 设置 UTF-8 编码，确保中文正常显示
 	os.Setenv("LANG", "zh_CN.UTF-8")
 	os.Setenv("LC_ALL", "zh_CN.UTF-8")
 }
 
 func main() {
-	// 初始化会话管理器与内部服务
-	sm := &tools.SessionManager{}
+	sm := &tools.SessionManager{Version: version}
 	ai := services.NewASTIndexer()
 
 	// 🚀 [LifeCycle] 探测并尝试自动绑定项目
@@ -44,8 +44,8 @@ func main() {
 	// 启动 MCP Server (StdIO)
 	s := server.NewMCPServer(
 		"MyProjectManager-Go",
-		"1.0.0",
-	) // 注册工具
+		version,
+	)
 	tools.RegisterSystemTools(s, sm, ai)       // 系统初始化
 	tools.RegisterMemoryTools(s, sm)           // 备忘与检索
 	tools.RegisterSearchTools(s, sm, ai)       // 项目地图与搜索

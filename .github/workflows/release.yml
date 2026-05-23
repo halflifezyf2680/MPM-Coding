@@ -22,6 +22,11 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: mcp-server-go/go.sum
 
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        shell: bash
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -38,7 +43,7 @@ jobs:
           $env:GOOS = 'windows'
           $env:GOARCH = 'amd64'
           $env:CGO_ENABLED = '0'
-          go build -o bin/mpm-go.exe ./cmd/server
+          go build -ldflags "-X main.version=${{ steps.version.outputs.VERSION }}" -o bin/mpm-go.exe ./cmd/server
 
       - name: Build Rust AST indexer
         working-directory: mcp-server-go/internal/services/ast_indexer_rust
@@ -91,6 +96,10 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: mcp-server-go/go.sum
 
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -107,7 +116,7 @@ jobs:
           export GOOS=linux
           export GOARCH=amd64
           export CGO_ENABLED=0
-          go build -o bin/mpm-go ./cmd/server
+          go build -ldflags "-X main.version=${{ steps.version.outputs.VERSION }}" -o bin/mpm-go ./cmd/server
 
       - name: Build Rust AST indexer
         working-directory: mcp-server-go/internal/services/ast_indexer_rust
@@ -160,6 +169,10 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: mcp-server-go/go.sum
 
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -176,7 +189,7 @@ jobs:
           export GOOS=darwin
           export GOARCH=amd64
           export CGO_ENABLED=0
-          go build -o bin/mpm-go-amd64 ./cmd/server
+          go build -ldflags "-X main.version=${{ steps.version.outputs.VERSION }}" -o bin/mpm-go-amd64 ./cmd/server
 
       - name: Build Go server (arm64)
         working-directory: mcp-server-go
@@ -184,7 +197,7 @@ jobs:
           export GOOS=darwin
           export GOARCH=arm64
           export CGO_ENABLED=0
-          go build -o bin/mpm-go-arm64 ./cmd/server
+          go build -ldflags "-X main.version=${{ steps.version.outputs.VERSION }}" -o bin/mpm-go-arm64 ./cmd/server
 
       - name: Build Rust AST indexer (x86_64)
         working-directory: mcp-server-go/internal/services/ast_indexer_rust

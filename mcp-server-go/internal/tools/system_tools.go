@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"mcp-server-go/internal/core"
 	"mcp-server-go/internal/services"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -149,6 +150,7 @@ type InitArgs struct {
 type SessionManager struct {
 	Memory        *core.MemoryLayer
 	ProjectRoot   string
+	Version       string                   // injected via ldflags at build time
 	TaskChainsV3  map[string]*TaskChainV3   // 协议状态机任务链
 	AnalysisState map[string]*AnalysisState // 历史遗留的分析状态缓存（兼容保留）
 
@@ -328,6 +330,18 @@ func RegisterSystemTools(s *server.MCPServer, sm *SessionManager, ai *services.A
   "mpm 索引状态", "mpm index status"`),
 		mcp.WithInputSchema[IndexStatusArgs](),
 	), wrapIndexStatus(sm))
+
+	s.AddTool(mcp.NewTool("check_update",
+		mcp.WithDescription(`check_update - 检查 MPM-Coding 新版本
+
+用途:
+  检查 GitHub Releases 是否有新版本, 提示用户手动更新。
+
+参数: 无
+
+触发词:
+  "mpm 更新", "mpm update", "mpm check update"`),
+	), wrapCheckUpdate(sm))
 }
 
 func wrapInit(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerFunc {
@@ -529,6 +543,63 @@ func wrapIndexStatus(sm *SessionManager) server.ToolHandlerFunc {
 		return mcp.NewToolResultText(string(rawOut)), nil
 	}
 }
+
+type githubRelease struct {
+	TagName string `json:"tag_name"`
+	HTMLURL string `json:"html_url"`
+	Body    string `json:"body"`
+}
+
+func wrapCheckUpdate(sm *SessionManager) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		_ = ctx
+
+		localVer := sm.Version
+		if localVer == "" || localVer == "dev" {
+			return mcp.NewToolResultText("当前为开发版本 (dev), 无法检查更新。请使用正式 release 版本。"), nil
+		}
+
+		client := &http.Client{Timeout: 10 * time.Second}
+		req, err := http.NewRequestWithContext(ctx, "GET",
+			"https://api.github.com/repos/halflifezyf2680/MPM-Coding/releases/latest", nil)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("创建请求失败: %v", err)), nil
+		}
+		req.Header.Set("Accept", "application/vnd.github+json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("网络请求失败: %v", err)), nil
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			return mcp.NewToolResultError(fmt.Sprintf("GitHub API 返回 %d", resp.StatusCode)), nil
+		}
+
+		var release githubRelease
+		if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("解析响应失败: %v", err)), nil
+		}
+
+		localClean := strings.TrimPrefix(localVer, "v")
+		remoteClean := strings.TrimPrefix(release.TagName, "v")
+
+		if localClean == remoteClean {
+			return mcp.NewToolResultText("MPM-Coding is up to date! Current: " + localVer), nil
+		}
+
+		sep := string([]byte{10, 10})
+		sep1 := string([]byte{10})
+		msg := "New version available!" + sep +
+			"Current: " + localVer + sep1 +
+			"Latest: " + release.TagName + sep +
+			"Download: " + release.HTMLURL + sep +
+			"Please download and update manually."
+		return mcp.NewToolResultText(msg), nil
+	}
+}
+
 
 func wrapOpenTimeline(sm *SessionManager) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
