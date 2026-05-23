@@ -18,11 +18,8 @@
 ### 1.1 Execution Loop
 
 ```
- locate          analyze          execute          record
-┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
-│  code_   │──▶│  code_   │──▶│  task_   │──▶│   memo   │
-│  search  │   │  impact  │   │  chain   │   │          │
-└──────────┘   └──────────┘   └──────────┘   └──────────┘
+locate ──▶ analyze ──▶ execute ──▶ record
+code_search  code_impact  task_chain  memo
 ```
 
 - **Short tasks**: `code_search → code_impact → edit → memo`
@@ -182,20 +179,25 @@ Trace function call chains for code reading.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `symbol_name` | string | No* | Entry symbol name |
-| `file_path` | string | No* | Entry file path |
+| `symbol_name` | string | Yes | Function name, class name, or file path. Auto-detected. Supports: `handleRequest`, `internal/tools/a.go`, `internal/tools/a.go:handleRequest` |
 | `scope` | string | No | Directory scope |
 | `direction` | string | No | `backward` / `forward` / `both`. Default: both |
 | `mode` | string | No | `brief` / `standard` / `deep`. Default: brief |
 | `max_nodes` | int | No | Max nodes. Default: 40 |
 
-\* Provide at least one. If both given, `symbol_name` takes priority.
-
 ---
+
 
 ### 2.7 task_chain
 
-Phased task chain with gate verification and cross-session resume.
+**State-machine-driven self-iterating adjustable task system.** Not a simple step list — init defines phases and gates, AI drives itself forward, gate failures auto-rollback and retry, humans only inspect at key checkpoints.
+
+Core design:
+- **Declarative phases** — init defines phase goals and acceptance criteria; AI has full execution freedom within each phase
+- **Gate checkpoints** — verify_gate phases require result="pass" to proceed; fail auto-rollback with retry (max 3)
+- **Loop phases** — spawn subtasks in batch, complete_sub one by one, auto-passed when all complete
+- **Runtime adjustment via update** — goal changed? update modifies description or replaces unfinished phases; completed phases are always preserved
+- **Cross-session resume** — resume restores from DB; session breaks don't lose progress
 
 **Modes**:
 

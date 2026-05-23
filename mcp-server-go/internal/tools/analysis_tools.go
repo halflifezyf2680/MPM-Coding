@@ -28,8 +28,7 @@ type ProjectMapArgs struct {
 
 // FlowTraceArgs 业务流程追踪参数
 type FlowTraceArgs struct {
-	SymbolName string `json:"symbol_name" jsonschema:"description=纯函数名或类名，不含路径和点号。例如 handleRequest，不要填 internal/pkg/handleRequest。与 file_path 二选一，优先使用此项"`
-	FilePath   string `json:"file_path" jsonschema:"description=纯文件路径，不含函数名。例如 internal/tools/analysis.go，不要填 internal/tools/analysis.go:handleRequest。与 symbol_name 二选一"`
+	SymbolName string `json:"symbol_name" jsonschema:"description=函数名、类名或文件路径。支持以下格式：函数名如 handleRequest；文件路径如 internal/tools/analysis.go；路径+函数如 internal/tools/analysis.go:handleRequest。系统自动识别类型"`
 	Scope      string `json:"scope" jsonschema:"description=项目内相对目录路径，例如 internal/services。留空表示整个项目"`
 	Direction  string `json:"direction" jsonschema:"default=both,enum=backward,enum=forward,enum=both,description=追踪方向"`
 	Mode       string `json:"mode" jsonschema:"default=brief,enum=brief,enum=standard,enum=deep,description=输出层级"`
@@ -91,33 +90,27 @@ func RegisterAnalysisTools(s *server.MCPServer, sm *SessionManager, ai *services
 	), wrapProjectMap(sm, ai))
 
 	s.AddTool(mcp.NewTool("flow_trace",
-		mcp.WithDescription(`flow_trace - 业务流程追踪（文件/函数）
+		mcp.WithDescription(`flow_trace - 业务流程追踪(文件/函数)
 
-用途：
-  给 LLM 建立代码阅读主链：先定位入口，再看上下游依赖，按关键节点顺序阅读。
+用途:
+  给 LLM 建立代码阅读主链: 先定位入口, 再看上下游依赖, 按关键节点顺序阅读。
 
-⚠️ symbol_name 和 file_path 二选一，只填一个：
-  - 有函数/类名 → 填 symbol_name，例如 "handleRequest"
-  - 只有文件路径 → 填 file_path，例如 "internal/tools/analysis.go"
-  - 不要两个都填，不要在 symbol_name 里塞路径
+参数:
+  symbol_name  函数名、类名或文件路径, 系统自动识别类型:
+               - 纯函数名如 "handleRequest"
+               - 文件路径如 "internal/tools/analysis.go"
+               - 路径+函数如 "internal/tools/analysis.go:handleRequest"
+  scope        限定目录(大项目建议填), 例如 "internal/services"
+  direction    both|forward|backward(默认 both)
+  mode         brief|standard|deep(默认 brief)
+  max_nodes    输出节点上限(默认 40)
 
-参数：
-  symbol_name  纯函数名或类名（优先使用）
-  file_path    纯文件路径（不含函数名）
-  scope        限定目录（大项目建议填），例如 "internal/services"
-  direction    both|forward|backward（默认 both）
-  mode         brief|standard|deep（默认 brief）
-  max_nodes    输出节点上限（默认 40）
-
-正确示例：
+示例:
   { "symbol_name": "handleRequest", "scope": "internal/services" }
-  { "file_path": "internal/tools/analysis.go", "direction": "forward" }
+  { "symbol_name": "internal/tools/analysis.go", "direction": "forward" }
+  { "symbol_name": "internal/tools/analysis.go:handleRequest" }
 
-错误示例（不要这样填）：
-  ❌ { "symbol_name": "internal/tools/handleRequest" }  ← 路径塞进了 symbol_name
-  ❌ { "symbol_name": "handleRequest", "file_path": "tools/analysis.go" }  ← 两个都填了
-
-触发词：
+触发词:
   "mpm 流程", "mpm flow"`),
 		mcp.WithInputSchema[FlowTraceArgs](),
 	), wrapFlowTrace(sm, ai))
@@ -146,6 +139,47 @@ func normalizeFlowMode(mode string) string {
 	default:
 		return "brief"
 	}
+}
+
+// parseFlowTraceTarget 智能解析 flow_trace 的 symbol_name 参数。
+// 支持三种输入格式，自动拆分：
+//   - 纯符号名：  "handleRequest"         → symbol="handleRequest", file=""
+//   - 纯文件路径："internal/tools/a.go"   → symbol="", file="internal/tools/a.go"
+//   - 路径+符号："internal/tools/a.go:handleRequest" → symbol="handleRequest", file="internal/tools/a.go"
+func parseFlowTraceTarget(raw string) (symbol, filePath string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
+	}
+
+	// Case 1: path:symbol format (e.g. "internal/tools/a.go:handleRequest")
+	if idx := strings.LastIndex(raw, ":"); idx > 0 {
+		left := raw[:idx]
+		right := raw[idx+1:]
+		// Validate: left looks like a file path (has / or .), right looks like a symbol
+		if (strings.Contains(left, "/") || strings.Contains(left, ".")) && !strings.Contains(right, "/") {
+			return right, left
+		}
+	}
+
+	// Case 2: looks like a file path (has extension with / or just .go/.py/.ts etc)
+	if strings.Contains(raw, "/") || hasCodeExtension(raw) {
+		return "", raw
+	}
+
+	// Case 3: pure symbol name
+	return raw, ""
+}
+
+func hasCodeExtension(s string) bool {
+	exts := []string{".go", ".py", ".ts", ".js", ".rs", ".java", ".c", ".cpp", ".h", ".tsx", ".jsx", ".css", ".html"}
+	lower := strings.ToLower(s)
+	for _, ext := range exts {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
 }
 
 func flowNodeKind(nodeType string) string {
@@ -550,42 +584,27 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 			return mcp.NewToolResultError("项目未初始化，请先执行 initialize_project"), nil
 		}
 
-		// 强校验：只允许填一个入口字段（exactly one of）
-		hasSymbol := strings.TrimSpace(args.SymbolName) != ""
-		hasFile := strings.TrimSpace(args.FilePath) != ""
-		if !hasSymbol && !hasFile {
-			return mcp.NewToolResultError("❌ 参数错误：必须提供 symbol_name 或 file_path（二选一）\n\n" +
-				"提示：\n" +
-				"- 想追踪函数/类的调用链？使用 symbol_name=\"函数名\"\n" +
-				"- 想追踪文件内的流程？使用 file_path=\"相对路径\""), nil
-		}
-		if hasSymbol && hasFile {
-			return mcp.NewToolResultError("❌ 参数错误：symbol_name 和 file_path 不能同时提供（二选一）\n\n" +
-				"提示：\n" +
-				"- 如果目标是符号（函数/类），只填 symbol_name\n" +
-				"- 如果目标是文件，只填 file_path"), nil
-		}
-
-		// 检查 minLength 约束（防止空字符串）
-		if hasSymbol && len(strings.TrimSpace(args.SymbolName)) == 0 {
-			return mcp.NewToolResultError("❌ 参数错误：symbol_name 不能为空字符串"), nil
-		}
-		if hasFile && len(strings.TrimSpace(args.FilePath)) == 0 {
-			return mcp.NewToolResultError("❌ 参数错误：file_path 不能为空字符串"), nil
-		}
-
-		scope, err := normalizeProjectRelativePath(sm.ProjectRoot, args.Scope, "scope")
-		if err != nil {
-			return mcp.NewToolResultError("❌ " + err.Error()), nil
-		}
-
-		filePath := strings.TrimSpace(args.FilePath)
-		if hasFile {
-			filePath, err = normalizeProjectRelativePath(sm.ProjectRoot, args.FilePath, "file_path")
-			if err != nil {
-				return mcp.NewToolResultError("❌ " + err.Error()), nil
+			// parseFlowTraceTarget auto-detects: pure symbol, file path, or path:symbol
+			raw := strings.TrimSpace(args.SymbolName)
+			if raw == "" {
+				return mcp.NewToolResultError("parameter error: symbol_name is required"), nil
 			}
-		}
+
+			parsedSymbol, parsedFile := parseFlowTraceTarget(raw)
+					hasFile := parsedFile != ""
+
+			scope, err := normalizeProjectRelativePath(sm.ProjectRoot, args.Scope, "scope")
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+
+			filePath := ""
+			if hasFile {
+				filePath, err = normalizeProjectRelativePath(sm.ProjectRoot, parsedFile, "file_path")
+				if err != nil {
+					return mcp.NewToolResultError(err.Error()), nil
+				}
+			}
 
 		direction := strings.ToLower(strings.TrimSpace(args.Direction))
 		if direction == "" {
@@ -609,19 +628,19 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 		allSnapshots := 0
 		var warmupWarning string
 
-		if strings.TrimSpace(args.SymbolName) != "" {
+		if strings.TrimSpace(parsedSymbol) != "" {
 			if err := warmIndexForPath(ai, sm.ProjectRoot, scope); err != nil {
 				warmupWarning = fmt.Sprintf("⚠️ 索引预热失败，以下结果可能基于旧索引：%v", err)
 			}
 
-			searchResult, err := ai.SearchSymbolWithScope(sm.ProjectRoot, args.SymbolName, scope)
+			searchResult, err := ai.SearchSymbolWithScope(sm.ProjectRoot, parsedSymbol, scope)
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("symbol 定位失败: %v", err)), nil
 			}
 			if searchResult == nil || searchResult.FoundSymbol == nil {
 				// 构造友好的错误提示
 				var errMsg strings.Builder
-				errMsg.WriteString(fmt.Sprintf("❌ 未找到符号: `%s`\n\n", args.SymbolName))
+				errMsg.WriteString(fmt.Sprintf("❌ 未找到符号: `%s`\n\n", parsedSymbol))
 
 				// 如果有候选，列出 top 5
 				if searchResult != nil && len(searchResult.Candidates) > 0 {
@@ -644,7 +663,7 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 
 				// 明确提示用户
 				errMsg.WriteString("**建议**:\n")
-				errMsg.WriteString("- 如果您的本意是**文件**，请改用 `file_path` 参数\n")
+				errMsg.WriteString("- 如果您的本意是**文件**，请直接传入文件路径, 如 \"internal/tools/a.go\"\n")
 				errMsg.WriteString("- 如果您的本意是**符号**，请先用 `code_search` 确认精确的符号名\n")
 				errMsg.WriteString("- 如果不确定，可以尝试 `code_search(query=\"关键词\")` 进行模糊搜索")
 
@@ -760,7 +779,7 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 			sb.WriteString("\n\n")
 		}
 		sb.WriteString(fmt.Sprintf("**模式**: %s | **视图**: %s | **方向**: %s\n\n", func() string {
-			if strings.TrimSpace(args.SymbolName) != "" {
+			if strings.TrimSpace(parsedSymbol) != "" {
 				return "symbol"
 			}
 			return "file"

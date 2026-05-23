@@ -15,16 +15,11 @@
 
 ## 1. 核心概念
 
-### 1.1 执行闭环
 
 ```
-  定位            分析            执行            记录
-┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
-│  code_   │──▶│  code_   │──▶│  task_   │──▶│   memo   │
-│  search  │   │  impact  │   │  chain   │   │          │
-└──────────┘   └──────────┘   └──────────┘   └──────────┘
+定位 ──▶ 分析 ──▶ 执行 ──▶ 记录
+code_search  code_impact  task_chain  memo
 ```
-
 - **短任务**：`code_search → code_impact → 改代码 → memo`
 - **长任务**：中间加 `task_chain`，阻塞时用 `system_hook`
 
@@ -182,20 +177,24 @@ AST 级符号定位。知道名字找不到位置时用这个。
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `symbol_name` | string | 否* | 入口符号名 |
-| `file_path` | string | 否* | 入口文件路径 |
+| `symbol_name` | string | 是 | 函数名、类名或文件路径，系统自动识别。支持：`handleRequest`、`internal/tools/a.go`、`internal/tools/a.go:handleRequest` |
 | `scope` | string | 否 | 限定目录 |
 | `direction` | string | 否 | `backward` / `forward` / `both`，默认 both |
 | `mode` | string | 否 | `brief` / `standard` / `deep`，默认 brief |
 | `max_nodes` | int | 否 | 最大节点数，默认 40 |
 
-\* 二选一。同时提供优先 `symbol_name`。
-
 ---
 
 ### 2.7 task_chain
 
-分阶段任务链。支持门控验收和跨会话续传。
+**状态机驱动的自迭代可调任务体系。** 不是简单的步骤列表——init 定义阶段和门控，AI 自主推进，gate 失败自动回退重试，人只在关键节点做检查。
+
+核心设计：
+- **声明式阶段** — init 时定义 phase 目标和验收标准，AI 在阶段内享有执行自由
+- **gate 门控** — verify_gate 阶段必须 result="pass" 才推进，fail 自动回退重试（最多 3 次）
+- **loop 循环** — spawn 子任务批量分发，逐个 complete_sub，全部完成后自动 passed
+- **update 运行时调整** — 目标变了？update 修改 description 或替换未完成阶段，已完成的永远保留
+- **跨会话续传** — resume 从 DB 恢复断点，会话断了进度不丢
 
 **mode 参数**：
 
@@ -238,8 +237,6 @@ task_chain(mode="complete", task_id="AUTH", phase_id="finalize", summary="完成
 ```
 
 **实战场景**：规划好完整的任务体系后，让能力强的模型自己跑。睡前启动一个 `develop` 协议链——从实现、验证到收尾，每个阶段有 gate 门控把关，失败自动重试，跑偏自己拉回来。第二天醒来 `task_chain(mode="status")` 看结果。网络问题导致会话断了？没事 `resume` 从断点续传，不丢失进度。这就是 task_chain 的真正价值：**让 AI 能独立完成多步长任务，人只做检查**。
-
----
 
 ### 2.8 system_hook
 
