@@ -96,19 +96,11 @@ func RegisterAnalysisTools(s *server.MCPServer, sm *SessionManager, ai *services
   给 LLM 建立代码阅读主链: 先定位入口, 再看上下游依赖, 按关键节点顺序阅读。
 
 参数:
-  symbol_name  函数名、类名或文件路径, 系统自动识别类型:
-               - 纯函数名如 "handleRequest"
-               - 文件路径如 "internal/tools/analysis.go"
-               - 路径+函数如 "internal/tools/analysis.go:handleRequest"
+  symbol_name  函数名、类名或文件路径, 系统自动识别
   scope        限定目录(大项目建议填), 例如 "internal/services"
   direction    both|forward|backward(默认 both)
   mode         brief|standard|deep(默认 brief)
   max_nodes    输出节点上限(默认 40)
-
-示例:
-  { "symbol_name": "handleRequest", "scope": "internal/services" }
-  { "symbol_name": "internal/tools/analysis.go", "direction": "forward" }
-  { "symbol_name": "internal/tools/analysis.go:handleRequest" }
 
 触发词:
   "mpm 流程", "mpm flow"`),
