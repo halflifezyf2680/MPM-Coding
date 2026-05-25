@@ -56,7 +56,17 @@ Freshness is automatically checked before tool calls; incremental indexing is tr
 
 ### 2.5 Performance
 
-Rust AST indexer (rayon parallel + tree-sitter): full indexing of 5,000+ files in 27 seconds; incremental indexing only re-parses changed files. Blazing fast — large projects are not a concern.
+Measured data (SWE-Bench workspace, 4 mixed open-source projects):
+
+| Scale | Files | Symbols | MPM Indexing Time |
+|-------|-------|---------|-------------------|
+| Single project (xarray) | 328 | 6,287 | <1s |
+| Single project (sphinx) | 1,391 | 7,547 | <1s |
+| Single project (sympy) | 1,512 | 25,911 | ~1s |
+| Single project (astropy) | 1,142 | 22,419 | ~12s |
+| Full workspace | 5,128 | 62,166 | 27s |
+
+Rust AST indexer (rayon parallel + tree-sitter): full indexing of 5,000+ files / 62,000+ symbols in 27 seconds; incremental indexing only re-parses changed files. Blazing fast — large projects are not a concern.
 
 ---
 
