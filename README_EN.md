@@ -6,6 +6,8 @@ English | [中文](README.md)
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Go](https://img.shields.io/badge/Go-1.21+-00ADD8.svg) ![MCP](https://img.shields.io/badge/MCP-v1.0-FF4F5E.svg)
 
+**Platform**: Windows / Linux / macOS | **Languages**: Go · Rust · Python · TS/JS · Java · C/C++ · HTML · CSS (11 tree-sitter bindings)
+
 ---
 
 ## The Problem
@@ -44,7 +46,7 @@ No guessing. No blind edits. No missing trail.
 
 The core bottleneck in AI coding isn't model capability — it's **too much garbage in the context window**.
 
-In a 50-file project, if the AI relies on reading files to understand code, it either reads everything (token explosion) or guesses which files matter (misses critical dependencies). Both are disasters. LSP solves IDE human-computer interaction — completions, go-to-definition, rename. AI clients already do these themselves.
+In a 5,000-file project, if the AI relies on reading files to understand code, it either reads everything (token explosion) or guesses which files matter (misses critical dependencies). Both are disasters. LSP solves IDE human-computer interaction — completions, go-to-definition, rename. AI clients already do these themselves.
 
 MPM solves a different problem: **how to make the AI understand code structure with minimal tokens**.
 
@@ -168,11 +170,12 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1  # or ./scrip
 
 | Doc | Description |
 |-----|-------------|
+| **[docs/WHITEPAPER_EN.md](./docs/WHITEPAPER_EN.md)** | **Technical whitepaper — AST engine, search strategy, confidence evolution, impact analysis, see the engineering depth** |
+| [docs/MANUAL_EN.md](./docs/MANUAL_EN.md) | Full manual — all tools, parameters, and case studies |
 | [QUICKSTART_EN.md](./QUICKSTART_EN.md) | 5-minute setup guide |
-| [docs/MANUAL_EN.md](./docs/MANUAL_EN.md) | Full manual — all tools, patterns, and case studies |
-| [README.md](./README.md) | 中文版 |
-| [QUICKSTART.md](./QUICKSTART.md) | 中文快速上手 |
 | [docs/MANUAL.md](./docs/MANUAL.md) | 中文完整手册 |
+| [docs/WHITEPAPER.md](./docs/WHITEPAPER.md) | 中文技术白皮书 |
+| [README.md](./README.md) | 中文版 |
 
 ---
 

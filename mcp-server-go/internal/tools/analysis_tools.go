@@ -766,6 +766,7 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 
 		var sb strings.Builder
 		sb.WriteString("### 🔄 业务流程追踪\n\n")
+		sb.WriteString("> 以下为调用链索引（上下游符号关系），不含实现细节。提出方案前应阅读目标文件完整上下文。\n\n")
 		if warmupWarning != "" {
 			sb.WriteString(warmupWarning)
 			sb.WriteString("\n\n")
@@ -942,41 +943,21 @@ func wrapImpact(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerF
 			sb.WriteString("✅ 无直接调用者，可安全修改\n")
 		}
 
-		// 间接调用总数
+		// 间接调用者列表（前20个，BFS已按距离排序）
 		if len(astResult.IndirectCallers) > 0 {
-			sb.WriteString(fmt.Sprintf("\n_间接影响: %d 个函数_\n", len(astResult.IndirectCallers)))
-		}
-
-		// JSON：直接调用者 + 间接调用者（按距离，前20个）
-		sb.WriteString("\n```json\n")
-		sb.WriteString(fmt.Sprintf(`{"risk":"%s","direct_count":%d,"indirect_count":%d,"callers":[`,
-			astResult.RiskLevel, len(astResult.DirectCallers), len(astResult.IndirectCallers)))
-
-		// 直接调用者
-		for i, c := range astResult.DirectCallers {
-			if i >= 10 {
-				break
+			sb.WriteString(fmt.Sprintf("\n### 间接影响（%d 个函数）\n", len(astResult.IndirectCallers)))
+			indirectLimit := 20
+			if len(astResult.IndirectCallers) < indirectLimit {
+				indirectLimit = len(astResult.IndirectCallers)
 			}
-			if i > 0 {
-				sb.WriteString(",")
+			for i := 0; i < indirectLimit; i++ {
+				c := astResult.IndirectCallers[i]
+				sb.WriteString(fmt.Sprintf("- `%s` @ %s:%d\n", c.Node.Name, c.Node.FilePath, c.Node.LineStart))
 			}
-			sb.WriteString(fmt.Sprintf(`"%s"`, c.Node.Name))
-		}
-
-		// 间接调用者（前20个，BFS已按距离排序）
-		indirectLimit := 20
-		if len(astResult.IndirectCallers) < indirectLimit {
-			indirectLimit = len(astResult.IndirectCallers)
-		}
-		for i := 0; i < indirectLimit; i++ {
-			c := astResult.IndirectCallers[i]
-			if i > 0 || len(astResult.DirectCallers) > 0 {
-				sb.WriteString(",")
+			if len(astResult.IndirectCallers) > indirectLimit {
+				sb.WriteString(fmt.Sprintf("- ... 还有 %d 个\n", len(astResult.IndirectCallers)-indirectLimit))
 			}
-			sb.WriteString(fmt.Sprintf(`"%s"`, c.Node.Name))
 		}
-
-		sb.WriteString("]}\n```\n")
 
 		return mcp.NewToolResultText(sb.String()), nil
 	}
