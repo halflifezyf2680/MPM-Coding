@@ -66,7 +66,7 @@ Measured data (SWE-Bench workspace, 4 mixed open-source projects):
 | Single project (astropy) | 1,142 | 22,419 | ~12s |
 | Full workspace | 5,128 | 62,166 | 27s |
 
-Rust AST indexer (rayon parallel + tree-sitter): full indexing of 5,000+ files / 62,000+ symbols in 27 seconds; incremental indexing only re-parses changed files. Blazing fast — large projects are not a concern.
+Rust AST indexer (rayon parallel + tree-sitter): full indexing of 5,000+ files / 62,000+ symbols in 27 seconds; incremental indexing only re-parses changed files. Blazing fast — large projects are not a concern. Note: astropy's higher time is due to 200+ C source files in its `cextern/` directory — tree-sitter's C parser is roughly an order of magnitude slower than its Python parser.
 
 ---
 

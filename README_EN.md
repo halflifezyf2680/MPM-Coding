@@ -22,6 +22,8 @@ The fun of AI coding can be quickly destroyed by real projects:
 
 MPM doesn't make the model smarter. MPM makes the work **finishable**.
 
+> 📄 **Want to see the engineering depth?** Read the [**Technical Whitepaper**](./docs/WHITEPAPER_EN.md) — AST engine, 5-layer search fallback, BFS + Dice Random Walk impact analysis, Bayesian confidence evolution... 13 chapters dissecting every core design decision.
+
 ---
 
 ## How It Works
