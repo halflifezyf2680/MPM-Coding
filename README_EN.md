@@ -5,7 +5,7 @@
 English | [中文](README.md)
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Go](https://img.shields.io/badge/Go-1.21+-00ADD8.svg) ![MCP](https://img.shields.io/badge/MCP-v1.0-FF4F5E.svg)
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-success) ![Languages](https://img.shields.io/badge/Tree--sitter-11%2B%20languages-39BA56)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-success) ![Languages](https://img.shields.io/badge/Tree--sitter-30%2B%20languages-39BA56)
 
 ---
 
