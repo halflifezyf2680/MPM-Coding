@@ -5,7 +5,7 @@
 中文 | [English](README_EN.md)
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Go](https://img.shields.io/badge/Go-1.21+-00ADD8.svg) ![MCP](https://img.shields.io/badge/MCP-v1.0-FF4F5E.svg)
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-success) ![Languages](https://img.shields.io/badge/Go-00ADD8) ![Languages](https://img.shields.io/badge/Rust-000000?logo=rust) ![Languages](https://img.shields.io/badge/Python-3776AB?logo=python) ![Languages](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript) ![Languages](https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript) ![Languages](https://img.shields.io/badge/Java-ED8B00?logo=openjdk) ![Languages](https://img.shields.io/badge/C/C++-00599C?logo=c%2B%2B) ![Languages](https://img.shields.io/badge/HTML-E34F26?logo=html5) ![Languages](https://img.shields.io/badge/CSS-1572B6?logo=css3)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-success) ![Languages](https://img.shields.io/badge/Tree--sitter-11%2B%20languages-39BA56)
 
 ---
 
