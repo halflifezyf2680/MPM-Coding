@@ -64,7 +64,7 @@ Measured data:
 | Kubernetes | Go | 24,877 | 160,899 | 814,615 | ~4min |
 | Godot | C/C++ | 13,817 | 158,388 | 355,283 | ~35s |
 
-Rust AST indexer (rayon parallel + tree-sitter): incremental indexing only re-parses changed files. A large Go project with 25,000 files / 160,000+ symbols completes full indexing in ~4 minutes; a C++ project with 13,000+ files finishes in 35 seconds. Note: tree-sitter's C parser is roughly an order of magnitude slower than its Python/Go parsers; Godot still finishes in 35 seconds thanks to rayon parallelism.
+Rust AST indexer (rayon parallel + tree-sitter): incremental indexing only re-parses changed files. A large Go project with 25,000 files / 160,000+ symbols completes full indexing in ~4 minutes; a C++ project with 13,000+ files finishes in 35 seconds. Go projects take longer due to dense cross-package calls generating far more call edges (Kubernetes: 814K edges vs Godot: 355K edges), and the linking phase scales linearly with edge count. Benchmarked on an i5-1230U low-power processor; desktop CPUs expected to be 2-3x faster.
 
 ---
 
