@@ -2959,7 +2959,7 @@ mod tests {
         let (lang, query) = setup.get("html").expect("html parser setup missing");
 
         let mut parser = TsParser::new();
-        parser.set_language(*lang).expect("failed to set html language");
+        parser.set_language(lang).expect("failed to set html language");
 
         let source = r#"
             <body>
@@ -2971,18 +2971,18 @@ mod tests {
         "#;
         let tree = parser.parse(source, None).expect("failed to parse html");
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(query, tree.root_node(), source.as_bytes());
         let capture_names = query.capture_names();
 
         let mut names = Vec::new();
-        for m in matches {
+        while let Some(m) = matches.next() {
             let mut node_name: Option<String> = None;
             let mut node_type: Option<&str> = None;
             let mut def_node: Option<tree_sitter::Node> = None;
 
             for capture in m.captures {
                 let capture_name = &capture_names[capture.index as usize];
-                match capture_name.as_str() {
+                match capture_name.as_ref() {
                     "name" => {
                         node_name = Some(
                             source[capture.node.start_byte()..capture.node.end_byte()].to_string(),
@@ -3016,7 +3016,7 @@ mod tests {
         let (lang, query) = setup.get("html").expect("html parser setup missing");
 
         let mut parser = TsParser::new();
-        parser.set_language(*lang).expect("failed to set html language");
+        parser.set_language(lang).expect("failed to set html language");
 
         let source = r#"
             <body>
@@ -3027,17 +3027,17 @@ mod tests {
         "#;
         let tree = parser.parse(source, None).expect("failed to parse html");
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(query, tree.root_node(), source.as_bytes());
         let capture_names = query.capture_names();
 
         let mut resolved = HashMap::new();
-        for m in matches {
+        while let Some(m) = matches.next() {
             let mut node_name: Option<String> = None;
             let mut def_node: Option<tree_sitter::Node> = None;
 
             for capture in m.captures {
                 let capture_name = &capture_names[capture.index as usize];
-                match capture_name.as_str() {
+                match capture_name.as_ref() {
                     "name" => {
                         node_name = Some(
                             source[capture.node.start_byte()..capture.node.end_byte()].to_string(),
@@ -3070,7 +3070,7 @@ mod tests {
         let (lang, query) = setup.get("css").expect("css parser setup missing");
 
         let mut parser = TsParser::new();
-        parser.set_language(*lang).expect("failed to set css language");
+        parser.set_language(lang).expect("failed to set css language");
 
         let source = r#"
             .hero-section {
@@ -3086,17 +3086,17 @@ mod tests {
         "#;
         let tree = parser.parse(source, None).expect("failed to parse css");
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(query, tree.root_node(), source.as_bytes());
         let capture_names = query.capture_names();
 
         let mut found_types: Vec<(String, String)> = Vec::new();
-        for m in matches {
+        while let Some(m) = matches.next() {
             let mut node_name: Option<String> = None;
             let mut def_node: Option<tree_sitter::Node> = None;
 
             for capture in m.captures {
                 let capture_name = &capture_names[capture.index as usize];
-                match capture_name.as_str() {
+                match capture_name.as_ref() {
                     "name" => {
                         node_name = Some(
                             source[capture.node.start_byte()..capture.node.end_byte()].to_string(),
