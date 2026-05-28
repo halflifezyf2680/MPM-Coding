@@ -23,7 +23,7 @@ MPM-Coding 不尝试让模型变聪明。它的全部工程投入围绕一个目
 
 索引构建由独立 Rust 二进制完成，通过 `os/exec` 调用，JSON 通信。主进程零 CGO 依赖。
 
-- **Rust 端**：tree-sitter 解析 + rayon 并行处理，所有语言共享同一套解析管线
+- **Rust 端**：tree-sitter 解析 + rayon 并行处理，所有语言共享同一套解析管线。提取的符号类型包括 function、method、class、struct、interface、typedef、constant、macro、variable、namespace
 - **Go 端**：MCP 工具层 + SQLite 存储层 + 文件监控层，职责分离
 
 支持 11 种语言（tree-sitter 绑定）：Python、JavaScript、TypeScript、TSX、HTML、CSS、Go、Rust、Java、C、C++。
@@ -56,17 +56,15 @@ MPM-Coding 不尝试让模型变聪明。它的全部工程投入围绕一个目
 
 ### 2.5 性能
 
-实测数据（SWE-Bench 工作区，4 个开源项目混合）：
+实测数据：
 
-| 规模 | 文件数 | 符号数 | MPM 索引耗时 |
-|------|--------|--------|-------------|
-| 单项目（xarray） | 328 | 6,287 | <1s |
-| 单项目（sphinx） | 1,391 | 7,547 | <1s |
-| 单项目（sympy） | 1,512 | 25,911 | ~1s |
-| 单项目（astropy） | 1,142 | 22,419 | ~12s |
-| 整个工作区 | 5,128 | 62,166 | 27s |
+| 项目 | 语言 | 文件数 | 符号数 | 调用边 | MPM 索引耗时 |
+|------|------|--------|--------|--------|-------------|
+| MPM-Coding | Go+Rust | 86 | - | 4,392 | <1s |
+| Kubernetes | Go | 24,877 | 160,899 | 814,615 | ~4min |
+| Godot | C/C++ | 13,817 | 158,388 | 355,283 | ~35s |
 
-Rust AST 索引器（rayon 并行 + tree-sitter），5,000+ 文件 / 62,000+ 符号全量索引 27 秒，增量索引仅解析变更文件。速度极快，根本不惧大型项目。注：astropy 耗时偏高是因为其 `cextern/` 目录包含 200+ C 源文件，tree-sitter 的 C 解析器比 Python 解析器慢约一个量级。
+Rust AST 索引器（rayon 并行 + tree-sitter），增量索引仅解析变更文件。25,000 文件 / 160,000+ 符号的大型 Go 项目全量索引约 4 分钟；13,000+ 文件的 C++ 项目 35 秒完成。注：C/C++ 项目中 tree-sitter 的 C 解析器比 Python/Go 解析器慢约一个量级，Godot 仍能在 35 秒内完成得益于 rayon 并行。
 
 ---
 

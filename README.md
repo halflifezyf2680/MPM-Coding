@@ -153,6 +153,7 @@ MPM 解决的是另一个问题：**如何用最少的 token 让 AI 精确理解
 |------|--------|
 | `initialize_project` | 初始化 AST 索引 + 生成项目规则。一次性操作。 |
 | `index_status` | 查看后台索引进度。 |
+| `ensure_languages` | 下载缺失的 tree-sitter grammar。通常自动执行。 |
 | `persona` | 切换 AI 人格，适配不同场景。 |
 
 ---

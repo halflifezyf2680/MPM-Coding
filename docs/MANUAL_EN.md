@@ -26,8 +26,8 @@ code_search  code_impact  task_chain  memo
 
 `initialize_project` triggers background index build. The process:
 
-1. Tree-sitter (Rust-side, rayon parallelism) parses source code, extracting symbols such as functions/classes/methods
-2. Generates `canonical_id` (globally unique) for each symbol
+1. Tree-sitter (Rust-side, rayon parallelism) parses source code, extracting symbols such as functions/classes/methods/type definitions/constants/macros/namespaces
+2. Generates `canonical_id` (globally unique) for each symbol, with type-prefixed IDs: `func:`, `class:`, `typedef:`, `macro:`, `const:`, `namespace:`
 3. Builds call edges (caller -> callee), forming a call graph
 4. Writes to `symbols.db` (SQLite)
 
@@ -79,6 +79,7 @@ This is **attention convergence**: from "guessing files" to "querying symbols", 
 | 11 | `known_facts` | Memory | Experience strategy engine (multi-dimensional scoring + confidence evolution + event audit) |
 | 12 | `persona` | Enhancement | AI personality switching |
 | 13 | `open_timeline` | Enhancement | Project evolution timeline visualization |
+| 14 | `ensure_languages` | System | Scan project file extensions, download missing tree-sitter grammars |
 
 ---
 
@@ -186,7 +187,7 @@ AST-level symbol lookup. Use when you know the name but can't find the location.
 |-------|------|----------|-------------|
 | `query` | string | Yes | Symbol name (not natural language) |
 | `scope` | string | No | Directory scope (relative path) |
-| `search_type` | string | No | `any` / `function` / `class`. Default: any |
+| `search_type` | string | No | `any` / `function` / `class`. Default: any. `class` also matches struct/interface/typedef/namespace |
 
 **Search strategy -- 5-layer degradation + ripgrep deep context reverse lookup**:
 
@@ -198,7 +199,7 @@ Ripgrep text search + GetSymbolAtLine reverse lookup
 
 Key design: the ripgrep fallback is not a simple text search. Each matched line calls `GetSymbolAtLine()` to reverse-lookup the AST database, finding the symbol that line belongs to. The output format is `L42: \`someFunction(args)\` in \`handleRequest\` (function)`. Even when taking the text search path, the LLM receives results with semantic context -- not raw line numbers.
 
-`search_type` filtering is effective at both the AST layer and text layer: `function` matches function/method, `class` matches class/struct/interface/component/template, etc.
+`search_type` filtering is effective at both the AST layer and text layer: `function` matches function/method, `class` matches class/struct/interface/component/template/typedef/namespace, etc.
 
 **Candidate list**: Even when an exact match is found, up to 5 candidates are output (after deduplication), including symbol type, file path, and match score. The LLM can discover "the second one might be what I actually need."
 
@@ -496,6 +497,20 @@ No parameters.
 
 ---
 
+### 2.14 ensure_languages
+
+Scans project file extensions and triggers tree-sitter grammar downloads. Usually executed automatically during `initialize_project`; no manual invocation needed.
+
+**Parameters**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `project_root` | string | No | Absolute path to project root. Uses current session project if empty. |
+
+**Behavior**: Recursively scans the project directory, collects all file extensions, detects corresponding languages via `tree-sitter-language-pack`, and triggers grammar compilation/download. Languages already present are skipped.
+
+---
+
 ## 3. Workflows
 
 ### 3.1 Setup
@@ -564,6 +579,8 @@ system_hook(mode="release", hook_id="#001", result_summary="configured")       -
 Go, Rust, Python, TypeScript/JavaScript, Java, C/C++, HTML (structural symbols), CSS (structural symbols)
 
 11 tree-sitter bindings total. The first indexing phase places no restrictions on file types; all tree-sitter-parseable languages are indexed.
+
+Extracted symbol types: function, method, class, struct, interface, component, typedef, constant, macro, variable, namespace, selector, keyframes, layout, template, slot.
 
 ### Where is data stored?
 

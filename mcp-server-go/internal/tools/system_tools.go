@@ -244,6 +244,11 @@ type IndexStatusArgs struct {
 	ProjectRoot string `json:"project_root" jsonschema:"description=可选项目根路径，留空时使用当前会话项目"`
 }
 
+// EnsureLanguagesArgs 下载 grammar 参数
+type EnsureLanguagesArgs struct {
+	ProjectRoot string `json:"project_root" jsonschema:"description=可选项目根路径，留空时使用当前会话项目"`
+}
+
 // RegisterSystemTools 注册系统工具
 func RegisterSystemTools(s *server.MCPServer, sm *SessionManager, ai *services.ASTIndexer) {
 	s.AddTool(mcp.NewTool("initialize_project",
@@ -341,7 +346,22 @@ func RegisterSystemTools(s *server.MCPServer, sm *SessionManager, ai *services.A
 
 触发词:
   "mpm 更新", "mpm update", "mpm check update"`),
-	), wrapCheckUpdate(sm))
+), wrapCheckUpdate(sm))
+
+	s.AddTool(mcp.NewTool("ensure_languages",
+		mcp.WithDescription(`ensure_languages - 确保 tree-sitter grammar 已下载
+
+用途：
+  扫描项目文件扩展名，下载缺失的 tree-sitter grammar。通常在 initialize_project 时自动执行。
+
+参数：
+  project_root (可选)
+    指定项目根路径。留空时使用当前会话项目。
+
+触发词：
+  "mpm 下载语法", "mpm ensure languages"`),
+		mcp.WithInputSchema[EnsureLanguagesArgs](),
+	), wrapEnsureLanguages(sm, ai))
 }
 
 func wrapInit(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerFunc {
@@ -541,6 +561,31 @@ func wrapIndexStatus(sm *SessionManager) server.ToolHandlerFunc {
 
 		rawOut, _ := json.MarshalIndent(result, "", "  ")
 		return mcp.NewToolResultText(string(rawOut)), nil
+	}
+}
+
+func wrapEnsureLanguages(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		_ = ctx
+
+		var args EnsureLanguagesArgs
+		if err := request.BindArguments(&args); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("参数错误: %v", err)), nil
+		}
+
+		root := strings.TrimSpace(args.ProjectRoot)
+		if root == "" {
+			root = sm.ProjectRoot
+		}
+		if root == "" {
+			return mcp.NewToolResultError("项目未初始化，请先执行 initialize_project 或传入 project_root"), nil
+		}
+
+		if err := ai.EnsureLanguages(root); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("grammar 下载失败: %v", err)), nil
+		}
+
+		return mcp.NewToolResultText("tree-sitter grammar 已就绪"), nil
 	}
 }
 

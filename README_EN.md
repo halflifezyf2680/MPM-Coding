@@ -94,6 +94,7 @@ This is **attention convergence**: the AI no longer needs to blindly search thro
 |------|-------------|
 | `initialize_project` | Bootstrap AST index + generate project rules. One-time setup. |
 | `index_status` | Monitor background index build progress. |
+| `ensure_languages` | Download missing tree-sitter grammars. Usually runs automatically. |
 | `persona` | Switch AI personality for different contexts. |
 
 ---

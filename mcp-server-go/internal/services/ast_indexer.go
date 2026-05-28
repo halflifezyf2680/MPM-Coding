@@ -853,6 +853,29 @@ func (ai *ASTIndexer) runIndexCommand(projectRoot string, args []string) error {
 	return nil
 }
 
+// EnsureLanguages 确保项目所需的 tree-sitter grammar 已下载就绪
+func (ai *ASTIndexer) EnsureLanguages(projectRoot string) error {
+	args := []string{
+		"--mode", "ensure-languages",
+		"--project", projectRoot,
+		"--db", filepath.Join(projectRoot, core.DataDirName, "dummy.db"),
+	}
+	timeout := 5 * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, ai.BinaryPath, args...)
+	cmd.Dir = projectRoot
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("ensure-languages 超时(%s): %s", timeout, string(output))
+	}
+	if err != nil {
+		return fmt.Errorf("ensure-languages 失败: %v: %s", err, string(output))
+	}
+	return nil
+}
+
 func buildIndexArgs(projectRoot, dbPath, outputPath, ignoreDirs, extensions, scope string, useExtensions bool, forceFull bool) []string {
 	args := []string{
 		"--mode", "index",
@@ -895,6 +918,9 @@ func (ai *ASTIndexer) indexWithOptions(projectRoot string, scope string, forceFu
 	_ = os.MkdirAll(mpmData, 0755)
 	// 清理旧文件
 	_ = os.Remove(outputPath)
+
+	// 索引前确保 tree-sitter grammar 已下载就绪
+	_ = ai.EnsureLanguages(projectRoot)
 
 	// 技术栈检测仅用于忽略目录与失败兜底，不再默认启用扩展白名单
 	extensions, ignoreDirs := detectTechStackAndConfig(projectRoot)

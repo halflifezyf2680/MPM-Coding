@@ -3,6 +3,7 @@ module mcp-server-go
 go 1.25.3
 
 require (
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/mark3labs/mcp-go v0.44.1
 	modernc.org/sqlite v1.46.1
 )
@@ -11,7 +12,6 @@ require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect

@@ -21,7 +21,7 @@ ast_indexer_rust --mode query --project "C:/Project" --db "./symbols.db" --query
 
 ## Architecture
 
-- **Tree-sitter**: Used for parsing Python, JS/TS, HTML (structure-first: layout/template/slot/component), CSS (structure-first: selector/keyframes), Go, Rust, Java, and C/C++.
+- **Tree-sitter**: Used for parsing Python, JS/TS, HTML (structure-first: layout/template/slot/component), CSS (structure-first: selector/keyframes), Go, Rust, Java, and C/C++. Extracts function, method, class, struct, interface, typedef, constant, macro, variable, namespace symbols.
 - **Rusqlite**: SQLite storage.
 - **Rayon**: Parallel processing (future).
 - **WalkDir**: Fast directory traversal.

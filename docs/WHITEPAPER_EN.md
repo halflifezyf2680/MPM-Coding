@@ -23,7 +23,7 @@ This is not just a matter of feature lists. The same feature names can have vast
 
 Index construction is performed by a standalone Rust binary, invoked via `os/exec` with JSON communication. The main process has zero CGO dependencies.
 
-- **Rust side**: tree-sitter parsing + rayon parallel processing; all languages share the same parsing pipeline
+- **Rust side**: tree-sitter parsing + rayon parallel processing; all languages share the same parsing pipeline. Extracted symbol types include function, method, class, struct, interface, typedef, constant, macro, variable, namespace
 - **Go side**: MCP tool layer + SQLite storage layer + file watcher layer, with clear separation of concerns
 
 Supports 11 languages (tree-sitter bindings): Python, JavaScript, TypeScript, TSX, HTML, CSS, Go, Rust, Java, C, C++.
@@ -56,17 +56,15 @@ Freshness is automatically checked before tool calls; incremental indexing is tr
 
 ### 2.5 Performance
 
-Measured data (SWE-Bench workspace, 4 mixed open-source projects):
+Measured data:
 
-| Scale | Files | Symbols | MPM Indexing Time |
-|-------|-------|---------|-------------------|
-| Single project (xarray) | 328 | 6,287 | <1s |
-| Single project (sphinx) | 1,391 | 7,547 | <1s |
-| Single project (sympy) | 1,512 | 25,911 | ~1s |
-| Single project (astropy) | 1,142 | 22,419 | ~12s |
-| Full workspace | 5,128 | 62,166 | 27s |
+| Project | Language | Files | Symbols | Call Edges | MPM Indexing Time |
+|---------|----------|-------|---------|------------|-------------------|
+| MPM-Coding | Go+Rust | 86 | - | 4,392 | <1s |
+| Kubernetes | Go | 24,877 | 160,899 | 814,615 | ~4min |
+| Godot | C/C++ | 13,817 | 158,388 | 355,283 | ~35s |
 
-Rust AST indexer (rayon parallel + tree-sitter): full indexing of 5,000+ files / 62,000+ symbols in 27 seconds; incremental indexing only re-parses changed files. Blazing fast — large projects are not a concern. Note: astropy's higher time is due to 200+ C source files in its `cextern/` directory — tree-sitter's C parser is roughly an order of magnitude slower than its Python parser.
+Rust AST indexer (rayon parallel + tree-sitter): incremental indexing only re-parses changed files. A large Go project with 25,000 files / 160,000+ symbols completes full indexing in ~4 minutes; a C++ project with 13,000+ files finishes in 35 seconds. Note: tree-sitter's C parser is roughly an order of magnitude slower than its Python/Go parsers; Godot still finishes in 35 seconds thanks to rayon parallelism.
 
 ---
 

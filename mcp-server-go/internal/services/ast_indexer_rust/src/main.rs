@@ -12,7 +12,8 @@ use std::sync::{
     mpsc, Arc,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
-use tree_sitter::{Language, Parser as TsParser, Query, QueryCursor};
+use tree_sitter::{Language, Parser as TsParser, Query, QueryCursor, StreamingIterator};
+use tree_sitter_language_pack::{detect_language_from_extension, get_language};
 
 // ============================================================================
 // CLI Arguments
@@ -157,6 +158,12 @@ fn capture_kind(capture_name: &str) -> Option<&'static str> {
         "def.func" => Some("function"),
         "def.class" => Some("class"),
         "def.component" => Some("component"),
+        "def.typedef" => Some("typedef"),
+        "def.const" => Some("constant"),
+        "def.static" => Some("constant"),
+        "def.macro" => Some("macro"),
+        "def.var" => Some("variable"),
+        "def.namespace" => Some("namespace"),
         _ => None,
     }
 }
@@ -170,10 +177,17 @@ fn is_scope_container(node_kind: &str) -> bool {
             | "method_declaration"
             | "class_declaration"
             | "interface_declaration"
+            | "enum_declaration"
+            | "type_alias_declaration"
             | "struct_item"
+            | "enum_item"
             | "impl_item"
             | "mod_item"
             | "trait_item"
+            | "enum_specifier"
+            | "namespace_definition"
+            | "module"
+            | "internal_module"
             | "element"
             | "script_element"
             | "style_element"
@@ -187,16 +201,117 @@ fn is_scope_name_kind(node_kind: &str) -> bool {
     )
 }
 
+fn get_query_for_language(lang_name: &str) -> Option<&'static str> {
+    match lang_name {
+        "python" => Some(r#"
+            (function_definition name: (identifier) @name) @def.func
+            (class_definition name: (identifier) @name) @def.class
+            (call function: (identifier) @callee) @ref.call
+            (call function: (attribute attribute: (identifier) @callee)) @ref.call
+        "#),
+        "javascript" => Some(r#"
+            (function_declaration name: (identifier) @name) @def.func
+            (class_declaration name: (identifier) @name) @def.class
+            (call_expression function: (identifier) @callee) @ref.call
+            (call_expression function: (member_expression property: (property_identifier) @callee)) @ref.call
+        "#),
+        "typescript" | "tsx" => Some(r#"
+            (function_declaration name: (identifier) @name) @def.func
+            (class_declaration name: (type_identifier) @name) @def.class
+            (method_definition name: (property_identifier) @name) @def.func
+            (interface_declaration name: (type_identifier) @name) @def.class
+            (type_alias_declaration name: (type_identifier) @name) @def.class
+            (enum_declaration name: (identifier) @name) @def.class
+            (lexical_declaration (variable_declarator name: (identifier) @name)) @def.var
+            (function_signature name: (identifier) @name) @def.func
+            (call_expression function: (identifier) @callee) @ref.call
+            (call_expression function: (member_expression property: (property_identifier) @callee)) @ref.call
+        "#),
+        "html" => Some(r#"
+            (element
+              (start_tag
+                (tag_name) @name) @def.component)
+            (self_closing_tag
+              (tag_name) @name) @def.component
+            (script_element
+              (start_tag
+                (tag_name) @name) @def.component)
+            (style_element
+              (start_tag
+                (tag_name) @name) @def.component)
+        "#),
+        "css" => Some(r#"
+            (rule_set
+              (selectors) @name) @def.component
+            (keyframes_statement
+              (keyframes_name) @name) @def.component
+        "#),
+        "go" => Some(r#"
+            (function_declaration name: (identifier) @name) @def.func
+            (method_declaration name: (field_identifier) @name) @def.func
+            (type_spec name: (type_identifier) @name) @def.class
+            (const_declaration (const_spec name: (identifier) @name)) @def.const
+            (var_declaration (var_spec name: (identifier) @name)) @def.var
+            (call_expression function: (identifier) @callee) @ref.call
+            (call_expression function: (selector_expression field: (field_identifier) @callee)) @ref.call
+        "#),
+        "rust" => Some(r#"
+            (function_item name: (identifier) @name) @def.func
+            (struct_item name: (type_identifier) @name) @def.class
+            (enum_item name: (type_identifier) @name) @def.class
+            (impl_item type: (type_identifier) @name) @def.class
+            (trait_item name: (type_identifier) @name) @def.class
+            (const_item name: (identifier) @name) @def.const
+            (static_item name: (identifier) @name) @def.static
+            (type_item name: (type_identifier) @name) @def.class
+            (macro_definition name: (identifier) @name) @def.macro
+            (call_expression function: (identifier) @callee) @ref.call
+            (call_expression function: (scoped_identifier name: (identifier) @callee)) @ref.call
+            (call_expression function: (field_expression field: (field_identifier) @callee)) @ref.call
+        "#),
+        "java" => Some(r#"
+            (class_declaration name: (identifier) @name) @def.class
+            (method_declaration name: (identifier) @name) @def.func
+            (interface_declaration name: (identifier) @name) @def.class
+            (enum_declaration name: (identifier) @name) @def.class
+            (method_invocation name: (identifier) @callee) @ref.call
+        "#),
+        "c" => Some(r#"
+            (function_definition declarator: (function_declarator declarator: (identifier) @name)) @def.func
+            (struct_specifier name: (type_identifier) @name) @def.class
+            (enum_specifier name: (type_identifier) @name) @def.class
+            (type_definition declarator: (type_identifier) @name) @def.typedef
+            (preproc_def name: (identifier) @name) @def.macro
+            (preproc_function_def name: (identifier) @name) @def.macro
+            (call_expression function: (identifier) @callee) @ref.call
+        "#),
+        "cpp" => Some(r#"
+            (function_definition declarator: (function_declarator declarator: (identifier) @name)) @def.func
+            (class_specifier name: (type_identifier) @name) @def.class
+            (struct_specifier name: (type_identifier) @name) @def.class
+            (enum_specifier name: (type_identifier) @name) @def.class
+            (type_definition declarator: (type_identifier) @name) @def.typedef
+            (alias_declaration name: (type_identifier) @name) @def.typedef
+            (preproc_def name: (identifier) @name) @def.macro
+            (preproc_function_def name: (identifier) @name) @def.macro
+            (namespace_definition name: (namespace_identifier) @name) @def.namespace
+            (call_expression function: (identifier) @callee) @ref.call
+            (call_expression function: (field_expression field: (field_identifier) @callee)) @ref.call
+        "#),
+        _ => None,
+    }
+}
+
 fn extract_scope_name(node: tree_sitter::Node, content: &str) -> Option<String> {
     for i in 0..node.child_count() {
-        let child = node.child(i)?;
+        let child = node.child(i as u32)?;
         let child_kind = child.kind();
         if is_scope_name_kind(child_kind) {
             return Some(content[child.start_byte()..child.end_byte()].to_string());
         }
         if matches!(child_kind, "start_tag" | "self_closing_tag" | "end_tag") {
             for j in 0..child.child_count() {
-                let nested = child.child(j)?;
+                let nested = child.child(j as u32)?;
                 if is_scope_name_kind(nested.kind()) {
                     return Some(content[nested.start_byte()..nested.end_byte()].to_string());
                 }
@@ -450,6 +565,8 @@ fn main() -> anyhow::Result<()> {
         run_diff(&args)?;
     } else if args.mode == "structure" {
         run_structure(&args)?;
+    } else if args.mode == "ensure-languages" {
+        run_ensure_languages(&args)?;
     }
 
     Ok(())
@@ -808,19 +925,22 @@ fn run_indexer(args: &Args, heartbeat_path: &Path) -> anyhow::Result<()> {
             }
 
             let mut parser = TsParser::new();
-            parser.set_language(*lang).unwrap();
+            if let Err(e) = parser.set_language(lang) {
+                eprintln!("Warning: set_language failed: {:?}", e);
+                return;
+            }
 
-            let tree = parser.parse(&content, None).unwrap(); // handle err?
+            let tree = parser.parse(&content, None).unwrap();
 
             let mut cursor = QueryCursor::new();
-            let matches = cursor.matches(query, tree.root_node(), content.as_bytes());
+            let mut matches_iter = cursor.matches(query, tree.root_node(), content.as_bytes());
 
             let mut symbols = vec![];
             let mut calls = vec![];
             let mut node_id_map: HashMap<usize, usize> = HashMap::new(); // tree_node_id -> temp_id
             let mut temp_counter = 0;
 
-            for m in matches {
+            while let Some(m) = matches_iter.next() {
                 let mut node_name: Option<String> = None;
                 let mut node_type: Option<&str> = None;
                 let mut def_node: Option<tree_sitter::Node> = None;
@@ -828,7 +948,7 @@ fn run_indexer(args: &Args, heartbeat_path: &Path) -> anyhow::Result<()> {
 
                 for capture in m.captures {
                     let capture_name = &query.capture_names()[capture.index as usize];
-                    match capture_name.as_str() {
+                    match capture_name.as_ref() {
                         "name" => {
                             node_name = Some(
                                 content[capture.node.start_byte()..capture.node.end_byte()]
@@ -1085,6 +1205,8 @@ fn run_indexer(args: &Args, heartbeat_path: &Path) -> anyhow::Result<()> {
                 "class" | "struct" | "interface" => "class",
                 "component" | "template" | "layout" | "slot" => "component",
                 "selector" | "keyframes" | "media" => "style",
+                "typedef" | "macro" | "namespace" => &sym.symbol_type,
+                "constant" | "variable" => "const",
                 _ => "func",
             };
             let canonical_id = format!("{}:{}::{}", prefix, res.file_path, sym.name);
@@ -1956,172 +2078,46 @@ fn run_map(args: &Args) -> anyhow::Result<()> {
 fn get_parser_setup() -> HashMap<String, (Language, Query)> {
     let mut map = HashMap::new();
 
-    // Python
-    let py_lang = tree_sitter_python::language();
-    let py_query = Query::new(
-        py_lang,
-        r#"
-        (function_definition name: (identifier) @name) @def.func
-        (class_definition name: (identifier) @name) @def.class
-        (call function: (identifier) @callee) @ref.call
-        (call function: (attribute attribute: (identifier) @callee)) @ref.call
-    "#,
-    )
-    .expect("Invalid Python Query");
-    map.insert("py".to_string(), (py_lang, py_query));
+    let ext_lang_pairs: Vec<(&str, &str)> = vec![
+        ("py", "python"),
+        ("js", "javascript"), ("jsx", "javascript"), ("mjs", "javascript"), ("cjs", "javascript"),
+        ("ts", "typescript"), ("tsx", "tsx"),
+        ("html", "html"), ("htm", "html"),
+        ("css", "css"),
+        ("go", "go"),
+        ("rs", "rust"),
+        ("java", "java"),
+        ("c", "c"), ("h", "c"),
+        ("cpp", "cpp"), ("cc", "cpp"), ("hpp", "cpp"),
+    ];
 
-    // JS
-    let js_lang = tree_sitter_javascript::language();
-    let js_query_str = r#"
-        (function_declaration name: (identifier) @name) @def.func
-        (class_declaration name: (identifier) @name) @def.class
-        (call_expression function: (identifier) @callee) @ref.call
-        (call_expression function: (member_expression property: (property_identifier) @callee)) @ref.call
-    "#;
-    let js_query = Query::new(js_lang, js_query_str).expect("Invalid JS Query");
-    map.insert("js".to_string(), (js_lang, js_query));
+    let mut lang_to_exts: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (ext, lang) in &ext_lang_pairs {
+        lang_to_exts.entry(lang).or_default().push(ext);
+    }
 
-    // JSX (JavaScript + JSX syntax)
-    let jsx_query = Query::new(js_lang, js_query_str).expect("Invalid JSX Query");
-    map.insert("jsx".to_string(), (js_lang, jsx_query));
+    for (lang_name, exts) in &lang_to_exts {
+        let lang = match get_language(lang_name) {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("Warning: failed to load language '{}': {}", lang_name, e);
+                continue;
+            }
+        };
 
-    // Node.js ES Modules (.mjs)
-    let mjs_query = Query::new(js_lang, js_query_str).expect("Invalid JS Query");
-    map.insert("mjs".to_string(), (js_lang, mjs_query));
-
-    // Node.js CommonJS (.cjs)
-    let cjs_query = Query::new(js_lang, js_query_str).expect("Invalid JS Query");
-    map.insert("cjs".to_string(), (js_lang, cjs_query));
-
-    // TypeScript (.ts, .tsx)
-    let ts_lang = tree_sitter_typescript::language_typescript();
-    let ts_query_str = r#"
-        (function_declaration name: (identifier) @name) @def.func
-        (class_declaration name: (type_identifier) @name) @def.class
-        (method_definition name: (property_identifier) @name) @def.func
-        (call_expression function: (identifier) @callee) @ref.call
-        (call_expression function: (member_expression property: (property_identifier) @callee)) @ref.call
-    "#;
-    let ts_query = Query::new(ts_lang, ts_query_str).expect("Invalid TypeScript Query");
-    map.insert("ts".to_string(), (ts_lang, ts_query));
-
-    // TSX (TypeScript + JSX)
-    let tsx_lang = tree_sitter_typescript::language_tsx();
-    let tsx_query = Query::new(tsx_lang, ts_query_str).expect("Invalid TSX Query");
-    map.insert("tsx".to_string(), (tsx_lang, tsx_query));
-
-    // HTML / HTM (structure-first, no synthetic call graph)
-    let html_lang = tree_sitter_html::language();
-    let html_query_str = r#"
-        (element
-          (start_tag
-            (tag_name) @name) @def.component)
-        (self_closing_tag
-          (tag_name) @name) @def.component
-        (script_element
-          (start_tag
-            (tag_name) @name) @def.component)
-        (style_element
-          (start_tag
-            (tag_name) @name) @def.component)
-    "#;
-    let html_query = Query::new(html_lang, html_query_str).expect("Invalid HTML Query");
-    map.insert("html".to_string(), (html_lang, html_query));
-    let htm_query = Query::new(html_lang, html_query_str).expect("Invalid HTML Query");
-    map.insert("htm".to_string(), (html_lang, htm_query));
-
-    // CSS (structure-first, no call graph)
-    let css_lang = tree_sitter_css::language();
-    let css_query_str = r#"
-        (rule_set
-          (selectors) @name) @def.component
-        (keyframes_statement
-          (keyframes_name) @name) @def.component
-    "#;
-    let css_query = Query::new(css_lang, css_query_str).expect("Invalid CSS Query");
-    map.insert("css".to_string(), (css_lang, css_query));
-
-    // Go
-    let go_lang = tree_sitter_go::language();
-    let go_query = Query::new(go_lang, r#"
-        (function_declaration name: (identifier) @name) @def.func
-        (method_declaration name: (field_identifier) @name) @def.func
-        (type_spec name: (type_identifier) @name) @def.class
-        (call_expression function: (identifier) @callee) @ref.call
-        (call_expression function: (selector_expression field: (field_identifier) @callee)) @ref.call
-    "#).expect("Invalid Go Query");
-    map.insert("go".to_string(), (go_lang, go_query));
-
-    // Rust
-    let rs_lang = tree_sitter_rust::language();
-    let rs_query = Query::new(
-        rs_lang,
-        r#"
-        (function_item name: (identifier) @name) @def.func
-        (struct_item name: (type_identifier) @name) @def.class
-        (enum_item name: (type_identifier) @name) @def.class
-        (impl_item type: (type_identifier) @name) @def.class
-        (call_expression function: (identifier) @callee) @ref.call
-        (call_expression function: (scoped_identifier name: (identifier) @callee)) @ref.call
-        (call_expression function: (field_expression field: (field_identifier) @callee)) @ref.call
-    "#,
-    )
-    .expect("Invalid Rust Query");
-    map.insert("rs".to_string(), (rs_lang, rs_query));
-
-    // Java
-    let java_lang = tree_sitter_java::language();
-    let java_query = Query::new(
-        java_lang,
-        r#"
-        (class_declaration name: (identifier) @name) @def.class
-        (method_declaration name: (identifier) @name) @def.func
-        (interface_declaration name: (identifier) @name) @def.class
-        (method_invocation name: (identifier) @callee) @ref.call
-    "#,
-    )
-    .expect("Invalid Java Query");
-    map.insert("java".to_string(), (java_lang, java_query));
-
-    // C
-    let c_lang = tree_sitter_c::language();
-    let c_query = Query::new(c_lang, r#"
-        (function_definition declarator: (function_declarator declarator: (identifier) @name)) @def.func
-        (struct_specifier name: (type_identifier) @name) @def.class
-        (call_expression function: (identifier) @callee) @ref.call
-    "#).expect("Invalid C Query");
-    map.insert("c".to_string(), (c_lang, c_query));
-
-    // Re-create query for headers (Query is not Clone)
-    let c_query_h = Query::new(c_lang, r#"
-        (function_definition declarator: (function_declarator declarator: (identifier) @name)) @def.func
-        (struct_specifier name: (type_identifier) @name) @def.class
-        (call_expression function: (identifier) @callee) @ref.call
-    "#).expect("Invalid C Query");
-    map.insert("h".to_string(), (c_lang, c_query_h));
-
-    // C++
-    let cpp_lang = tree_sitter_cpp::language();
-    let cpp_query_str = r#"
-        (function_definition declarator: (function_declarator declarator: (identifier) @name)) @def.func
-        (class_specifier name: (type_identifier) @name) @def.class
-        (struct_specifier name: (type_identifier) @name) @def.class
-        (call_expression function: (identifier) @callee) @ref.call
-        (call_expression function: (field_expression field: (field_identifier) @callee)) @ref.call
-    "#;
-
-    let cpp_query = Query::new(cpp_lang, cpp_query_str).expect("Invalid C++ Query");
-    map.insert("cpp".to_string(), (cpp_lang, cpp_query));
-
-    let cpp_query_cc = Query::new(cpp_lang, cpp_query_str).expect("Invalid C++ Query");
-    map.insert("cc".to_string(), (cpp_lang, cpp_query_cc));
-
-    let cpp_query_hpp = Query::new(cpp_lang, cpp_query_str).expect("Invalid C++ Query");
-    map.insert("hpp".to_string(), (cpp_lang, cpp_query_hpp));
-
-    // TODO: Kotlin, Swift, Ruby need tree-sitter version alignment
-    // Blocked by: tree-sitter-kotlin/swift/ruby require ts 0.22+ but other grammars are on 0.20
-    // Solution: Wait for all grammars to align, or fork/patch individual crates
+        if let Some(query_str) = get_query_for_language(lang_name) {
+            for ext in exts {
+                match Query::new(&lang, query_str) {
+                    Ok(query) => {
+                        map.insert(ext.to_string(), (lang.clone(), query));
+                    }
+                    Err(e) => {
+                        eprintln!("Warning: invalid query for '{}' (ext {}): {}", lang_name, ext, e);
+                    }
+                }
+            }
+        }
+    }
 
     map
 }
@@ -2834,6 +2830,98 @@ fn run_structure(args: &Args) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+// ============================================================================
+// Ensure Languages Mode
+// ============================================================================
+
+fn run_ensure_languages(args: &Args) -> anyhow::Result<()> {
+    let project_path = Path::new(&args.project);
+    if !project_path.exists() {
+        anyhow::bail!("Project path does not exist: {}", args.project);
+    }
+
+    // 1. Collect unique file extensions from the project
+    let mut ext_set: HashSet<String> = HashSet::new();
+    let walker = WalkBuilder::new(project_path)
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .build();
+
+    for entry in walker.flatten() {
+        if let Some(ext) = entry.path().extension() {
+            if let Some(ext_str) = ext.to_str() {
+                ext_set.insert(ext_str.to_lowercase());
+            }
+        }
+    }
+
+    // 2. Map extensions to language names and trigger download
+    let mut results: Vec<EnsureLangResult> = Vec::new();
+    let mut seen_langs: HashSet<String> = HashSet::new();
+
+    for ext in &ext_set {
+        // detect_language_from_extension expects bare extension WITHOUT dot
+        if let Some(lang_ref) = detect_language_from_extension(ext) {
+            let lang_name = lang_ref.to_string();
+            if seen_langs.contains(&lang_name) {
+                continue;
+            }
+            seen_langs.insert(lang_name.clone());
+
+            match get_language(lang_ref) {
+                Ok(_lang) => {
+                    let lang_owned = lang_name.clone();
+                    results.push(EnsureLangResult {
+                        language: lang_name,
+                        extensions: ext_set
+                            .iter()
+                            .filter(|e| {
+                                detect_language_from_extension(e)
+                                    .map(|l| l == lang_owned)
+                                    .unwrap_or(false)
+                            })
+                            .cloned()
+                            .collect(),
+                        status: "ok".to_string(),
+                    });
+                }
+                Err(e) => {
+                    results.push(EnsureLangResult {
+                        language: lang_name,
+                        extensions: vec![ext.clone()],
+                        status: format!("download_failed: {}", e),
+                    });
+                }
+            }
+        }
+    }
+
+    // 3. Output JSON
+    let output = serde_json::json!({
+        "project": args.project,
+        "total_extensions_found": ext_set.len(),
+        "languages": results,
+    });
+
+    let json = serde_json::to_string_pretty(&output)?;
+    println!("{}", json);
+
+    if let Some(out_path) = &args.output {
+        fs::write(out_path, &json)?;
+    }
+
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct EnsureLangResult {
+    language: String,
+    extensions: Vec<String>,
+    status: String,
 }
 
 #[cfg(test)]
