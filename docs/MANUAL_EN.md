@@ -576,9 +576,9 @@ system_hook(mode="release", hook_id="#001", result_summary="configured")       -
 
 ### Which languages are supported?
 
-Go, Rust, Python, TypeScript/JavaScript, Java, C/C++, HTML (structural symbols), CSS (structural symbols)
+Go, Rust, Python, TypeScript/JavaScript, Java, C/C++, HTML (structural symbols), CSS (structural symbols), and 20+ more via tree-sitter-language-pack
 
-11 tree-sitter bindings total. The first indexing phase places no restrictions on file types; all tree-sitter-parseable languages are indexed.
+The first indexing phase places no restrictions on file types; all tree-sitter-parseable languages are indexed (30+).
 
 Extracted symbol types: function, method, class, struct, interface, component, typedef, constant, macro, variable, namespace, selector, keyframes, layout, template, slot.
 

@@ -186,7 +186,7 @@ mcp-server-go/
 ```
 
 - **Go 1.21+** — 零 CGO，纯 `modernc.org/sqlite`
-- **Tree-sitter** — Rust AST 索引器，支持 Go、Rust、Python、TS/JS、Java、C/C++、HTML、CSS
+- **Tree-sitter** — Rust AST 索引器，30+ 语言按需下载
 - **SQLite** — 嵌入式存储，数据在 `.mpm-data/`（不提交到 git）
 
 ---

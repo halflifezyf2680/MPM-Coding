@@ -26,7 +26,7 @@ Index construction is performed by a standalone Rust binary, invoked via `os/exe
 - **Rust side**: tree-sitter parsing + rayon parallel processing; all languages share the same parsing pipeline. Extracted symbol types include function, method, class, struct, interface, typedef, constant, macro, variable, namespace
 - **Go side**: MCP tool layer + SQLite storage layer + file watcher layer, with clear separation of concerns
 
-Supports 11 languages (tree-sitter bindings): Python, JavaScript, TypeScript, TSX, HTML, CSS, Go, Rust, Java, C, C++.
+Supports 30+ languages (tree-sitter-language-pack): Python, JavaScript, TypeScript, TSX, HTML, CSS, Go, Rust, Java, C/C++, Bash, C#, Dart, Elixir, GDScript, GLSL, Haskell, Lua, PHP, Ruby, Scala, Swift, and more. The first indexing phase parses all tree-sitter-supported languages without restriction.
 
 ### 2.2 Two-Phase Indexing Strategy
 

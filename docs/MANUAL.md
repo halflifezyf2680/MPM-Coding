@@ -37,7 +37,7 @@ code_search  code_impact  task_chain  memo
 
 `code_search` 查这个库，`code_impact` 在调用图上做 BFS 链路发现 + Dice Random Walk 复杂度评分。
 
-支持的语言：Go、Rust、Python、TS/JS、Java、C/C++、HTML、CSS。
+支持的语言：Go、Rust、Python、TS/JS、Java、C/C++、HTML、CSS 等 30+ 种语言（tree-sitter-language-pack）。
 
 ### 1.2 上下文清洗与注意力收敛
 
@@ -578,7 +578,7 @@ system_hook(mode="release", hook_id="#001", result_summary="已配置")     → 
 
 Go、Rust、Python、TypeScript/JavaScript、Java、C/C++、HTML（结构符号）、CSS（结构符号）
 
-共 11 种 tree-sitter 绑定。索引第一阶段不限制文件类型，所有 tree-sitter 能解析的语言都会被索引。
+索引第一阶段不限制文件类型，所有 tree-sitter 支持的语言都会被索引（30+ 种）。
 
 提取的符号类型：function、method、class、struct、interface、component、typedef、constant、macro、variable、namespace、selector、keyframes、layout、template、slot。
 

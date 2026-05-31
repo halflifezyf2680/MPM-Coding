@@ -26,7 +26,7 @@ MPM-Coding 不尝试让模型变聪明。它的全部工程投入围绕一个目
 - **Rust 端**：tree-sitter 解析 + rayon 并行处理，所有语言共享同一套解析管线。提取的符号类型包括 function、method、class、struct、interface、typedef、constant、macro、variable、namespace
 - **Go 端**：MCP 工具层 + SQLite 存储层 + 文件监控层，职责分离
 
-支持 11 种语言（tree-sitter 绑定）：Python、JavaScript、TypeScript、TSX、HTML、CSS、Go、Rust、Java、C、C++。
+支持 30+ 种语言（tree-sitter-language-pack）：Python、JavaScript、TypeScript、TSX、HTML、CSS、Go、Rust、Java、C/C++、Bash、C#、Dart、Elixir、GDScript、GLSL、Haskell、Lua、PHP、Ruby、Scala、Swift 等。索引第一阶段不限制文件类型，所有 tree-sitter 支持的语言都会被解析。
 
 ### 2.2 两阶段索引策略
 

@@ -196,7 +196,7 @@ mcp-server-go/
 ```
 
 - **Go 1.21+** — zero CGO, pure `modernc.org/sqlite`
-- **Tree-sitter** — Rust AST indexer for Go, Rust, Python, TS/JS, Java, C/C++, HTML, CSS
+- **Tree-sitter** — Rust AST indexer, 30+ languages on-demand
 - **SQLite** — embedded storage in `.mpm-data/` (never committed)
 
 ---
