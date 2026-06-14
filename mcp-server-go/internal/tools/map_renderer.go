@@ -38,6 +38,7 @@ func (mr *MapRenderer) RenderOverview() string {
 
 	sb.WriteString(fmt.Sprintf("### 🗺️ 项目地图 (Structure)\n\n"))
 	sb.WriteString(fmt.Sprintf("**📊 统计**: %d 文件 | %d 符号\n\n", stats.TotalFiles, stats.TotalSymbols))
+	sb.WriteString("> 这是项目导航锚点，用于减少盲目遍历；不是完整代码清单。请按任务风险和信息量，按需阅读关键源码片段。\n\n")
 
 	// 1. 复杂度统计摘要
 	if mr.Result.ComplexityMap != nil && len(mr.Result.ComplexityMap) > 0 {
@@ -305,6 +306,7 @@ func (mr *MapRenderer) getLevelTag(score float64) string {
 func (mr *MapRenderer) RenderStandard() string {
 	var sb strings.Builder
 	sb.WriteString("### 🗺️ 项目地图 (Symbols)\n\n")
+	sb.WriteString("> 这是符号导航锚点，用于减少盲目遍历；不是完整代码清单。请按任务风险和信息量，按需阅读关键源码片段。\n\n")
 
 	// 统计摘要
 	stats := mr.Result.Statistics

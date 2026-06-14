@@ -208,6 +208,12 @@ fn get_query_for_language(lang_name: &str) -> Option<&'static str> {
             (class_definition name: (identifier) @name) @def.class
             (call function: (identifier) @callee) @ref.call
             (call function: (attribute attribute: (identifier) @callee)) @ref.call
+            (call
+              function: (attribute attribute: (identifier) @callee)
+              arguments: (argument_list
+                (keyword_argument
+                  name: (identifier) @bind.name
+                  value: (identifier) @bind.value))) @ref.bind
         "#),
         "javascript" => Some(r#"
             (function_declaration name: (identifier) @name) @def.func
@@ -346,6 +352,183 @@ fn css_symbol_type(node_kind: &str) -> Option<&'static str> {
         "media_statement" => Some("media"),
         _ => None,
     }
+}
+
+fn resolve_enclosing_temp_id(
+    node: tree_sitter::Node,
+    node_id_map: &HashMap<usize, usize>,
+) -> usize {
+    let mut p_cursor = node.parent();
+    while let Some(p) = p_cursor {
+        if let Some(pid) = node_id_map.get(&p.id()) {
+            return *pid;
+        }
+        p_cursor = p.parent();
+    }
+    0
+}
+
+fn extract_symbols_and_calls(
+    content: &str,
+    ext: &str,
+    lang: &Language,
+    query: &Query,
+) -> (Vec<PendingSymbol>, Vec<PendingCall>, usize) {
+    let mut parser = TsParser::new();
+    parser
+        .set_language(lang)
+        .expect("failed to set parser language");
+
+    let tree = parser.parse(content, None).unwrap();
+
+    let mut cursor = QueryCursor::new();
+    let mut symbols = vec![];
+    let mut calls = vec![];
+    let mut node_id_map: HashMap<usize, usize> = HashMap::new();
+    let mut binding_targets: HashMap<(usize, String), String> = HashMap::new();
+    let mut temp_counter = 0;
+    let capture_names = query.capture_names();
+
+    let mut matches_iter = cursor.matches(query, tree.root_node(), content.as_bytes());
+    while let Some(m) = matches_iter.next() {
+        let mut node_name: Option<String> = None;
+        let mut node_type: Option<&str> = None;
+        let mut def_node: Option<tree_sitter::Node> = None;
+        let mut callee_node: Option<tree_sitter::Node> = None;
+        let mut bind_name: Option<String> = None;
+        let mut bind_value: Option<String> = None;
+
+        for capture in m.captures {
+            let capture_name = &capture_names[capture.index as usize];
+            match capture_name.as_ref() {
+                "name" => {
+                    node_name = Some(
+                        content[capture.node.start_byte()..capture.node.end_byte()].to_string(),
+                    );
+                }
+                "callee" => {
+                    callee_node = Some(capture.node);
+                }
+                "bind.name" => {
+                    bind_name = Some(
+                        content[capture.node.start_byte()..capture.node.end_byte()].to_string(),
+                    );
+                }
+                "bind.value" => {
+                    bind_value = Some(
+                        content[capture.node.start_byte()..capture.node.end_byte()].to_string(),
+                    );
+                }
+                _ if capture_kind(capture_name).is_some() => {
+                    node_type = capture_kind(capture_name);
+                    def_node = Some(capture.node);
+                }
+                _ => {}
+            }
+        }
+
+        if let (Some(name), Some(kind), Some(full_node)) = (node_name, node_type, def_node) {
+            let resolved_kind = if ext == "html" || ext == "htm" {
+                let snippet = &content[full_node.start_byte()..full_node.end_byte()];
+                match html_symbol_type(&name, snippet) {
+                    Some(symbol_type) => symbol_type,
+                    None => continue,
+                }
+            } else if ext == "css" {
+                match css_symbol_type(full_node.kind()) {
+                    Some(symbol_type) => symbol_type,
+                    None => continue,
+                }
+            } else {
+                kind
+            };
+
+            let start = full_node.start_position().row + 1;
+            let end = full_node.end_position().row + 1;
+
+            temp_counter += 1;
+            let tid = temp_counter;
+            node_id_map.insert(full_node.id(), tid);
+
+            let mut parent_temp_id = None;
+            let mut p_cursor = full_node.parent();
+            while let Some(p) = p_cursor {
+                if let Some(pid) = node_id_map.get(&p.id()) {
+                    parent_temp_id = Some(*pid);
+                    break;
+                }
+                p_cursor = p.parent();
+            }
+
+            let mut scope_parts: Vec<String> = Vec::new();
+            let mut scope_cursor = full_node.parent();
+            while let Some(p) = scope_cursor {
+                if is_scope_container(p.kind()) {
+                    if let Some(parent_name) = extract_scope_name(p, content) {
+                        if parent_name != name {
+                            scope_parts.push(parent_name);
+                        }
+                    }
+                }
+                scope_cursor = p.parent();
+            }
+            scope_parts.reverse();
+            let scope_path = if scope_parts.is_empty() {
+                name.clone()
+            } else {
+                format!("{}::{}", scope_parts.join("::"), name)
+            };
+
+            symbols.push(PendingSymbol {
+                temp_id: tid,
+                parent_temp_id,
+                name: name.clone(),
+                qualified_name: scope_path.clone(),
+                scope_path,
+                symbol_type: resolved_kind.to_string(),
+                line_start: start,
+                line_end: end,
+                text: name,
+                signature: if resolved_kind == "function" {
+                    let sig_text = &content[full_node.start_byte()..full_node.end_byte()];
+                    sig_text.lines().next().map(|s| s.trim().to_string())
+                } else {
+                    None
+                },
+            });
+        }
+
+        if let (Some(bind_name), Some(bind_value)) = (bind_name, bind_value) {
+            let scope_tid = if let Some(def_node) = def_node {
+                resolve_enclosing_temp_id(def_node, &node_id_map)
+            } else {
+                0
+            };
+            binding_targets.insert((scope_tid, bind_name), bind_value);
+        }
+
+        if let Some(c_node) = callee_node {
+            let callee_name = content[c_node.start_byte()..c_node.end_byte()].to_string();
+            let caller_tid = resolve_enclosing_temp_id(c_node, &node_id_map);
+            let line = c_node.start_position().row + 1;
+
+            if caller_tid > 0 {
+                let resolved = binding_targets
+                    .get(&(caller_tid, callee_name.clone()))
+                    .or_else(|| binding_targets.get(&(0usize, callee_name.clone())))
+                    .cloned()
+                    .unwrap_or(callee_name);
+                calls.push(PendingCall {
+                    caller_temp_id: caller_tid,
+                    callee_name: resolved,
+                    line,
+                });
+            }
+        }
+    }
+
+    let line_count = content.lines().count();
+    (symbols, calls, line_count)
 }
 
 // ============================================================================
@@ -930,146 +1113,8 @@ fn run_indexer(args: &Args, heartbeat_path: &Path) -> anyhow::Result<()> {
                 return;
             }
 
-            let tree = parser.parse(&content, None).unwrap();
-
-            let mut cursor = QueryCursor::new();
-            let mut matches_iter = cursor.matches(query, tree.root_node(), content.as_bytes());
-
-            let mut symbols = vec![];
-            let mut calls = vec![];
-            let mut node_id_map: HashMap<usize, usize> = HashMap::new(); // tree_node_id -> temp_id
-            let mut temp_counter = 0;
-
-            while let Some(m) = matches_iter.next() {
-                let mut node_name: Option<String> = None;
-                let mut node_type: Option<&str> = None;
-                let mut def_node: Option<tree_sitter::Node> = None;
-                let mut callee_node: Option<tree_sitter::Node> = None;
-
-                for capture in m.captures {
-                    let capture_name = &query.capture_names()[capture.index as usize];
-                    match capture_name.as_ref() {
-                        "name" => {
-                            node_name = Some(
-                                content[capture.node.start_byte()..capture.node.end_byte()]
-                                    .to_string(),
-                            );
-                        }
-                        "callee" => {
-                            callee_node = Some(capture.node);
-                        }
-                        _ if capture_kind(capture_name).is_some() => {
-                            node_type = capture_kind(capture_name);
-                            def_node = Some(capture.node);
-                        }
-                        "ref.call" => {
-                            // Already handled by callee?
-                        }
-                        _ => {}
-                    }
-                }
-
-                if let (Some(name), Some(kind), Some(full_node)) = (node_name, node_type, def_node)
-                {
-                    let resolved_kind = if ext == "html" || ext == "htm" {
-                        let snippet = &content[full_node.start_byte()..full_node.end_byte()];
-                        match html_symbol_type(&name, snippet) {
-                            Some(symbol_type) => symbol_type,
-                            None => continue,
-                        }
-                    } else if ext == "css" {
-                        match css_symbol_type(full_node.kind()) {
-                            Some(symbol_type) => symbol_type,
-                            None => continue,
-                        }
-                    } else {
-                        kind
-                    };
-
-                    // Definition
-                    let start = full_node.start_position().row + 1;
-                    let end = full_node.end_position().row + 1;
-
-                    temp_counter += 1;
-                    let tid = temp_counter;
-                    node_id_map.insert(full_node.id(), tid);
-
-                    // Find parent temp_id
-                    let mut parent_temp_id = None;
-                    let mut p_cursor = full_node.parent();
-                    while let Some(p) = p_cursor {
-                        if let Some(pid) = node_id_map.get(&p.id()) {
-                            parent_temp_id = Some(*pid);
-                            break;
-                        }
-                        p_cursor = p.parent();
-                    }
-
-                    // 🆕 构建 scope_path：沿 parent() 回溯收集类/模块名
-                    let mut scope_parts: Vec<String> = Vec::new();
-                    let mut scope_cursor = full_node.parent();
-                    while let Some(p) = scope_cursor {
-                        let node_kind = p.kind();
-                        if is_scope_container(node_kind) {
-                            if let Some(parent_name) = extract_scope_name(p, &content) {
-                                if parent_name != name {
-                                    scope_parts.push(parent_name);
-                                }
-                            }
-                        }
-                        scope_cursor = p.parent();
-                    }
-                    scope_parts.reverse();
-                    let scope_path = if scope_parts.is_empty() {
-                        name.clone()
-                    } else {
-                        format!("{}::{}", scope_parts.join("::"), name)
-                    };
-
-                    symbols.push(PendingSymbol {
-                        temp_id: tid,
-                        parent_temp_id,
-                        name: name.clone(),
-                        qualified_name: scope_path.clone(),
-                        scope_path,
-                        symbol_type: resolved_kind.to_string(),
-                        line_start: start,
-                        line_end: end,
-                        text: name,
-                        signature: if resolved_kind == "function" {
-                            let sig_text = &content[full_node.start_byte()..full_node.end_byte()];
-                            sig_text.lines().next().map(|s| s.trim().to_string())
-                        } else {
-                            None
-                        },
-                    });
-                } else if let Some(c_node) = callee_node {
-                    // Call
-                    let callee_name = content[c_node.start_byte()..c_node.end_byte()].to_string();
-                    // Find caller
-                    let mut p_cursor = c_node.parent();
-                    let mut caller_tid = 0;
-                    let line = c_node.start_position().row + 1;
-
-                    while let Some(p) = p_cursor {
-                        if let Some(pid) = node_id_map.get(&p.id()) {
-                            caller_tid = *pid;
-                            break;
-                        }
-                        p_cursor = p.parent();
-                    }
-
-                    if caller_tid > 0 {
-                        calls.push(PendingCall {
-                            caller_temp_id: caller_tid,
-                            callee_name,
-                            line,
-                        });
-                    }
-                }
-            }
-
-            let line_count = content.lines().count();
+            let (symbols, calls, line_count) =
+                extract_symbols_and_calls(&content, &ext, lang, query);
             parsed_counter.fetch_add(1, Ordering::Relaxed);
 
             let _ = tx_chan.send(ParseResult {
@@ -1091,7 +1136,7 @@ fn run_indexer(args: &Args, heartbeat_path: &Path) -> anyhow::Result<()> {
     let mut tx = conn.transaction()?;
 
     let upsert_file_sql =
-        "INSERT INTO files (file_path, file_hash, file_size, file_mtime, language, line_count, index_level, indexed_at, updated_at) 
+        "INSERT INTO files (file_path, file_hash, file_size, file_mtime, language, line_count, index_level, indexed_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
          ON CONFLICT(file_path) DO UPDATE SET file_hash=?2, file_size=?3, file_mtime=?4, language=?5, line_count=?6, index_level=?7, indexed_at=?8, updated_at=?9";
     let ins_symbol_sql =
@@ -1464,7 +1509,7 @@ fn progressive_search_multi(
             unique_map.insert(id, c);
         }
     }
-    
+
     let mut unique_candidates: Vec<CandidateMatch> = unique_map.into_values().collect();
     unique_candidates.sort_by(|a, b| {
         b.score
@@ -1800,8 +1845,8 @@ fn run_query(args: &Args) -> anyhow::Result<()> {
         // === 行号定位模式 ===
         // 找到包含该行的符号（line_start <= line <= line_end）
         let mut stmt = conn.prepare(
-            "SELECT canonical_id, name, qualified_name, file_path, line_start, line_end, symbol_type 
-             FROM symbols JOIN files ON symbols.file_id = files.file_id 
+            "SELECT canonical_id, name, qualified_name, file_path, line_start, line_end, symbol_type
+             FROM symbols JOIN files ON symbols.file_id = files.file_id
              WHERE file_path LIKE ?1 AND line_start <= ?2 AND line_end >= ?2
              ORDER BY (line_end - line_start) ASC
              LIMIT 1",
@@ -1840,9 +1885,9 @@ fn run_query(args: &Args) -> anyhow::Result<()> {
     let mut related = vec![];
     if let Some(ref sym) = found {
         let mut call_stmt = conn.prepare(
-            "SELECT s.canonical_id, s.name, s.qualified_name, f.file_path, s.line_start, s.line_end, s.symbol_type 
-             FROM calls c 
-             JOIN symbols s ON c.caller_id = s.symbol_id 
+            "SELECT s.canonical_id, s.name, s.qualified_name, f.file_path, s.line_start, s.line_end, s.symbol_type
+             FROM calls c
+             JOIN symbols s ON c.caller_id = s.symbol_id
              JOIN files f ON s.file_id = f.file_id
              WHERE c.callee_id = ?1 OR (c.callee_id IS NULL AND c.callee_name = ?2)"
         )?;
@@ -1963,7 +2008,7 @@ fn run_map(args: &Args) -> anyhow::Result<()> {
                 Ok((
                     full_path.clone(), // HashMap Key
                     Node {
-                        id: row.get::<_, String>(6)?, 
+                        id: row.get::<_, String>(6)?,
                         name: row.get(1)?,
                         qualified_name: row.get(2)?,
                         file_path: full_path, // Node.file_path
@@ -2145,13 +2190,33 @@ fn run_analyze(args: &Args) -> anyhow::Result<()> {
     let query_str = args.query.as_ref().expect("Query required for analysis");
 
     // 1. Locate Target Node (精确匹配优先，失败后模糊匹配)
-    // 先尝试精确匹配
-    let mut stmt = conn.prepare("SELECT canonical_id, name, qualified_name, file_path, line_start, line_end, symbol_type FROM symbols JOIN files ON symbols.file_id = files.file_id WHERE name = ?1 LIMIT 1")?;
+    // 改进：支持 "file_path:symbol" 格式的 qualified hint（解决 code_impact 名字歧义）
+    //       无 hint 时按 files.indexed_at / file_mtime 降序挑最近索引的（优先当前代码，避开 .claude 等废弃 legacy）
+    let (name_part, file_hint): (String, Option<String>) = if let Some(idx) = query_str.rfind(':') {
+        (query_str[idx + 1..].to_string(), Some(query_str[..idx].to_string()))
+    } else {
+        (query_str.to_string(), None)
+    };
 
-    let target_node = stmt
-        .query_row([query_str], |row| {
+    let mut where_clause = "name = ?1".to_string();
+    let mut params: Vec<String> = vec![name_part.clone()];
+    if let Some(ref h) = file_hint {
+        where_clause.push_str(" AND file_path LIKE ?");
+        params.push(format!("%{}%", h.replace('\\', "/")));
+    }
+
+    let locate_sql = format!(
+        "SELECT canonical_id, name, qualified_name, file_path, line_start, line_end, symbol_type \
+         FROM symbols JOIN files ON symbols.file_id = files.file_id \
+         WHERE {} ORDER BY files.indexed_at DESC, files.file_mtime DESC LIMIT 1",
+        where_clause
+    );
+
+    let mut stmt = conn.prepare(&locate_sql)?;
+    let target_node = if let Some(hint) = &file_hint {
+        stmt.query_row(params![&params[0], &params[1]], |row| {
             Ok(Node {
-                id: row.get::<_, String>(0)?, // 🆕 canonical_id
+                id: row.get::<_, String>(0)?,
                 name: row.get(1)?,
                 qualified_name: row.get(2)?,
                 file_path: row.get(3)?,
@@ -2163,31 +2228,66 @@ fn run_analyze(args: &Args) -> anyhow::Result<()> {
             })
         })
         .optional()?
-        .or_else(|| {
-            // 精确匹配失败，尝试模糊匹配
-            let fuzzy_pattern = format!("%{}%", query_str);
-            let mut fuzzy_stmt = conn.prepare(
-            "SELECT canonical_id, name, qualified_name, file_path, line_start, line_end, symbol_type
-             FROM symbols JOIN files ON symbols.file_id = files.file_id
-             WHERE name LIKE ?1 OR qualified_name LIKE ?1
-             LIMIT 1"
-        ).ok()?;
-            fuzzy_stmt
-                .query_row([fuzzy_pattern], |row| {
-                    Ok(Node {
-                        id: row.get::<_, String>(0)?, // 🆕 canonical_id
-                        name: row.get(1)?,
-                        qualified_name: row.get(2)?,
-                        file_path: row.get(3)?,
-                        line_start: row.get(4)?,
-                        line_end: row.get(5)?,
-                        node_type: row.get(6)?,
-                        signature: None,
-                        calls: vec![],
-                    })
-                })
-                .ok()
-        });
+    } else {
+        stmt.query_row(params![&params[0]], |row| {
+            Ok(Node {
+                id: row.get::<_, String>(0)?,
+                name: row.get(1)?,
+                qualified_name: row.get(2)?,
+                file_path: row.get(3)?,
+                line_start: row.get(4)?,
+                line_end: row.get(5)?,
+                node_type: row.get(6)?,
+                signature: None,
+                calls: vec![],
+            })
+        })
+        .optional()?
+    };
+
+    // 兜底：如果带 hint 没找到，退回不带 hint 的最近索引版本（保持向后兼容）
+    let target_node = target_node.or_else(|| {
+        let fallback_sql = "SELECT canonical_id, name, qualified_name, file_path, line_start, line_end, symbol_type \
+                            FROM symbols JOIN files ON symbols.file_id = files.file_id \
+                            WHERE name = ?1 ORDER BY files.indexed_at DESC, files.file_mtime DESC LIMIT 1";
+        let mut fb_stmt = conn.prepare(fallback_sql).ok()?;
+        fb_stmt.query_row(params![name_part], |row| {
+            Ok(Node {
+                id: row.get::<_, String>(0)?,
+                name: row.get(1)?,
+                qualified_name: row.get(2)?,
+                file_path: row.get(3)?,
+                line_start: row.get(4)?,
+                line_end: row.get(5)?,
+                node_type: row.get(6)?,
+                signature: None,
+                calls: vec![],
+            })
+        }).ok()
+    });
+
+    let target_node = target_node.or_else(|| {
+        // 精确匹配失败，尝试模糊匹配（同样偏好最近）
+        let fuzzy_name = format!("%{}%", name_part);
+        let fuzzy_sql = "SELECT canonical_id, name, qualified_name, file_path, line_start, line_end, symbol_type \
+                         FROM symbols JOIN files ON symbols.file_id = files.file_id \
+                         WHERE name LIKE ?1 OR qualified_name LIKE ?1 \
+                         ORDER BY files.indexed_at DESC, files.file_mtime DESC LIMIT 1";
+        let mut fuzzy_stmt = conn.prepare(fuzzy_sql).ok()?;
+        fuzzy_stmt.query_row(params![fuzzy_name], |row| {
+            Ok(Node {
+                id: row.get::<_, String>(0)?,
+                name: row.get(1)?,
+                qualified_name: row.get(2)?,
+                file_path: row.get(3)?,
+                line_start: row.get(4)?,
+                line_end: row.get(5)?,
+                node_type: row.get(6)?,
+                signature: None,
+                calls: vec![],
+            })
+        }).ok()
+    });
 
     let mut target = match target_node {
         Some(n) => n,
@@ -3119,5 +3219,157 @@ mod tests {
         assert!(found_types.iter().any(|(n, t)| n == ".hero-section" && t == "selector"));
         assert!(found_types.iter().any(|(n, t)| n == "#app" && t == "selector"));
         assert!(found_types.iter().any(|(n, t)| n == "fadeIn" && t == "keyframes"));
+    }
+
+    #[test]
+    fn python_query_captures_basic_calls() {
+        let setup = get_parser_setup();
+        let (lang, query) = setup.get("py").expect("python parser setup missing");
+
+        let mut parser = TsParser::new();
+        parser
+            .set_language(lang)
+            .expect("failed to set python language");
+
+        let source = r#"
+def cmd_foo():
+    helper()
+
+def helper():
+    pass
+"#;
+        let tree = parser.parse(source, None).expect("failed to parse python");
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(query, tree.root_node(), source.as_bytes());
+        let capture_names = query.capture_names();
+
+        let mut defs = Vec::new();
+        let mut calls = Vec::new();
+
+        while let Some(m) = matches.next() {
+            let mut node_name: Option<String> = None;
+            let mut def_node: Option<tree_sitter::Node> = None;
+            let mut callee_node: Option<tree_sitter::Node> = None;
+
+            for capture in m.captures {
+                let capture_name = &capture_names[capture.index as usize];
+                match capture_name.as_ref() {
+                    "name" => {
+                        node_name = Some(
+                            source[capture.node.start_byte()..capture.node.end_byte()].to_string(),
+                        );
+                    }
+                    "callee" => {
+                        callee_node = Some(capture.node);
+                    }
+                    _ if capture_kind(capture_name).is_some() => {
+                        def_node = Some(capture.node);
+                    }
+                    _ => {}
+                }
+            }
+
+            if let Some(name) = node_name {
+                if def_node.is_some() {
+                    defs.push(name);
+                }
+            }
+            if let Some(callee_node) = callee_node {
+                calls.push(source[callee_node.start_byte()..callee_node.end_byte()].to_string());
+            }
+        }
+
+        assert!(defs.iter().any(|name| name == "cmd_foo"));
+        assert!(defs.iter().any(|name| name == "helper"));
+        assert!(calls.iter().any(|name| name == "helper"));
+    }
+
+    #[test]
+    fn python_query_captures_keyword_dispatch_binding() {
+        let setup = get_parser_setup();
+        let (lang, query) = setup.get("py").expect("python parser setup missing");
+
+        let mut parser = TsParser::new();
+        parser
+            .set_language(lang)
+            .expect("failed to set python language");
+
+        let source = r#"
+def cmd_foo():
+    pass
+
+def build():
+    parser.set_defaults(func=cmd_foo)
+"#;
+        let tree = parser.parse(source, None).expect("failed to parse python");
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(query, tree.root_node(), source.as_bytes());
+        let capture_names = query.capture_names();
+
+        let mut seen_keyword = false;
+        while let Some(m) = matches.next() {
+            let mut bind_name: Option<String> = None;
+            let mut bind_value: Option<String> = None;
+            let mut callee: Option<String> = None;
+
+            for capture in m.captures {
+                let capture_name = &capture_names[capture.index as usize];
+                match capture_name.as_ref() {
+                    "bind.name" => {
+                        bind_name = Some(
+                            source[capture.node.start_byte()..capture.node.end_byte()].to_string(),
+                        );
+                    }
+                    "bind.value" => {
+                        bind_value = Some(
+                            source[capture.node.start_byte()..capture.node.end_byte()].to_string(),
+                        );
+                    }
+                    "callee" => {
+                        callee = Some(
+                            source[capture.node.start_byte()..capture.node.end_byte()].to_string(),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+
+            if bind_name.as_deref() == Some("func")
+                && bind_value.as_deref() == Some("cmd_foo")
+                && callee.as_deref() == Some("set_defaults")
+            {
+                seen_keyword = true;
+                break;
+            }
+        }
+
+        assert!(seen_keyword);
+    }
+
+    #[test]
+    fn python_dispatch_binding_resolves_args_func_call() {
+        let setup = get_parser_setup();
+        let (lang, query) = setup.get("py").expect("python parser setup missing");
+
+        let source = r#"
+def cmd_foo(args):
+    pass
+
+def main():
+    parser.set_defaults(func=cmd_foo)
+    args = parser.parse_args()
+    args.func(args)
+"#;
+
+        let (symbols, calls, _) = extract_symbols_and_calls(source, "py", lang, query);
+        let main_tid = symbols
+            .iter()
+            .find(|symbol| symbol.name == "main")
+            .map(|symbol| symbol.temp_id)
+            .expect("main symbol missing");
+
+        assert!(calls
+            .iter()
+            .any(|call| call.caller_temp_id == main_tid && call.callee_name == "cmd_foo"));
     }
 }

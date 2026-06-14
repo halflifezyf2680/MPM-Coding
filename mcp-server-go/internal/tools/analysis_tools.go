@@ -38,10 +38,10 @@ type FlowTraceArgs struct {
 // RegisterAnalysisTools 注册分析类工具
 func RegisterAnalysisTools(s *server.MCPServer, sm *SessionManager, ai *services.ASTIndexer) {
 	s.AddTool(mcp.NewTool("code_impact",
-		mcp.WithDescription(`code_impact - 代码修改影响分析
+		mcp.WithDescription(`code_impact - 改动风险报警
 
 用途：
-  分析修改函数或类时的影响范围，识别需要同步修改的位置
+  基于静态索引提示明显上游/下游风险点；用于改前优先检查，不是完整影响范围证明
 
 参数：
   symbol_name (必填)
@@ -55,9 +55,9 @@ func RegisterAnalysisTools(s *server.MCPServer, sm *SessionManager, ai *services
 
 返回：
   - 风险等级（low/medium/high）
-  - 直接调用者列表（前10个）
-  - 间接调用者数量
-  - 修改检查清单
+  - 明显风险点列表（前10个）
+  - 间接风险线索数量
+  - 改前优先检查锚点
 
 示例：
   code_impact(symbol_name="Login", direction="backward")
@@ -72,7 +72,7 @@ func RegisterAnalysisTools(s *server.MCPServer, sm *SessionManager, ai *services
 		mcp.WithDescription(`project_map - 项目导航仪（不知道代码在哪时用）
 
 用途：
-  宏观视角：当你迷路了，或不知道该改哪个文件时，用我获取项目结构地图。
+  宏观视角：当你迷路了，或不知道该改哪个文件时，用我获取项目导航锚点。
 
 参数速查：
   level     symbols|structure（默认 symbols）
@@ -93,7 +93,7 @@ func RegisterAnalysisTools(s *server.MCPServer, sm *SessionManager, ai *services
 		mcp.WithDescription(`flow_trace - 业务流程追踪(文件/函数)
 
 用途:
-  给 LLM 建立代码阅读主链: 先定位入口, 再看上下游依赖, 按关键节点顺序阅读。
+  给 LLM 建立代码阅读候选主链: 先定位入口锚点, 再看上下游候选依赖, 按关键节点顺序阅读源码。
 
 参数:
   symbol_name  函数名、类名或文件路径, 系统自动识别
@@ -576,27 +576,27 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 			return mcp.NewToolResultError("项目未初始化，请先执行 initialize_project"), nil
 		}
 
-			// parseFlowTraceTarget auto-detects: pure symbol, file path, or path:symbol
-			raw := strings.TrimSpace(args.SymbolName)
-			if raw == "" {
-				return mcp.NewToolResultError("parameter error: symbol_name is required"), nil
-			}
+		// parseFlowTraceTarget auto-detects: pure symbol, file path, or path:symbol
+		raw := strings.TrimSpace(args.SymbolName)
+		if raw == "" {
+			return mcp.NewToolResultError("parameter error: symbol_name is required"), nil
+		}
 
-			parsedSymbol, parsedFile := parseFlowTraceTarget(raw)
-					hasFile := parsedFile != ""
+		parsedSymbol, parsedFile := parseFlowTraceTarget(raw)
+		hasFile := parsedFile != ""
 
-			scope, err := normalizeProjectRelativePath(sm.ProjectRoot, args.Scope, "scope")
+		scope, err := normalizeProjectRelativePath(sm.ProjectRoot, args.Scope, "scope")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		filePath := ""
+		if hasFile {
+			filePath, err = normalizeProjectRelativePath(sm.ProjectRoot, parsedFile, "file_path")
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
-
-			filePath := ""
-			if hasFile {
-				filePath, err = normalizeProjectRelativePath(sm.ProjectRoot, parsedFile, "file_path")
-				if err != nil {
-					return mcp.NewToolResultError(err.Error()), nil
-				}
-			}
+		}
 
 		direction := strings.ToLower(strings.TrimSpace(args.Direction))
 		if direction == "" {
@@ -755,6 +755,21 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 			} else if mode == "deep" {
 				keep = 4
 			}
+			// 实测修复（用户反馈 query_v2.py argparse dispatch）：当候选中存在 0 inbound（典型 cmd_* 动态入口，无静态调用边）
+			// 时放宽 keep，避免它们全被 prune 导致 flow_trace 只显示 get_db/row_to_dict
+			hasZeroInbound := false
+			for _, s := range snapshots {
+				if impactDirectCount(s.Backward) == 0 {
+					hasZeroInbound = true
+					break
+				}
+			}
+			if hasZeroInbound {
+				keep += 4
+				if keep > 10 {
+					keep = 10
+				}
+			}
 			if len(snapshots) > keep {
 				snapshots = snapshots[:keep]
 			}
@@ -766,7 +781,7 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 
 		var sb strings.Builder
 		sb.WriteString("### 🔄 业务流程追踪\n\n")
-		sb.WriteString("> 以下为调用链索引（上下游符号关系），不含实现细节。提出方案前应阅读目标文件完整上下文。\n\n")
+		sb.WriteString("> 以下为代码阅读锚点（候选上下游符号关系），不是完整代码或完整调用图。请用它减少盲目遍历，并按任务风险和信息量补读关键源码片段。\n\n")
 		if warmupWarning != "" {
 			sb.WriteString(warmupWarning)
 			sb.WriteString("\n\n")
@@ -783,7 +798,7 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 
 		for _, snap := range snapshots {
 			n := snap.Node
-			sb.WriteString(fmt.Sprintf("#### 入口 `%s`\n", n.Name))
+			sb.WriteString(fmt.Sprintf("#### 候选入口 `%s`\n", n.Name))
 			sb.WriteString(fmt.Sprintf("- 类型: `%s` | 位置: `%s:%d` | score=%.1f\n", snap.NodeKind, n.FilePath, n.LineStart, snap.Score))
 			sb.WriteString(fmt.Sprintf("- 跨文件连接: inbound=%d, outbound=%d\n", snap.ExternalIn, snap.ExternalOut))
 
@@ -800,7 +815,7 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 				}
 				upDirect := pickCallers(snap.Backward.DirectCallers, upLimit)
 				upIndirect := pickCallers(snap.Backward.IndirectCallers, upLimit)
-				sb.WriteString(fmt.Sprintf("- 上游影响: direct=%d, indirect=%d, risk=%s\n", len(upDirect), len(upIndirect), snap.Backward.RiskLevel))
+				sb.WriteString(fmt.Sprintf("- 候选上游: direct=%d, indirect=%d, risk=%s\n", len(upDirect), len(upIndirect), snap.Backward.RiskLevel))
 				if len(upDirect) > 0 && mode != "brief" {
 					sb.WriteString("- 上游关键节点: ")
 					names := callerNames(upDirect, upLimit)
@@ -832,7 +847,7 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 				}
 				downDirect := pickCallers(snap.Forward.DirectCallers, downLimit)
 				downIndirect := pickCallers(snap.Forward.IndirectCallers, downLimit)
-				sb.WriteString(fmt.Sprintf("- 下游依赖: direct=%d, indirect=%d, complexity=%.1f\n", len(downDirect), len(downIndirect), snap.Forward.ComplexityScore))
+				sb.WriteString(fmt.Sprintf("- 候选下游: direct=%d, indirect=%d, complexity=%.1f\n", len(downDirect), len(downIndirect), snap.Forward.ComplexityScore))
 				if len(downDirect) > 0 {
 					sb.WriteString("- 下游关键节点: ")
 					names := callerNames(downDirect, downLimit)
@@ -879,7 +894,7 @@ func wrapFlowTrace(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandl
 		sb.WriteString("- 若需更多细节，将 `mode` 提升为 `standard` 或 `deep`。\n")
 
 		if allSnapshots > len(snapshots) {
-			sb.WriteString(fmt.Sprintf("\n_注：文件模式下候选入口较多，已从 %d 个中展示 %d 个高分入口。_\n", allSnapshots, len(snapshots)))
+			sb.WriteString(fmt.Sprintf("\n_注：文件模式下候选入口较多，已从 %d 个中展示 %d 个（按连接度排序；0 inbound 者通常为 argparse/动态 dispatch 入口如 cmd_*，之前易被严重漏报）。_\n", allSnapshots, len(snapshots)))
 		}
 		if omitted > 0 || shownNodes > maxNodes {
 			sb.WriteString(fmt.Sprintf("_注：已按输出预算截断，省略约 %d 个节点（max_nodes=%d）。_\n", omitted, maxNodes))
@@ -899,15 +914,22 @@ func wrapImpact(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerF
 		if sm.ProjectRoot == "" {
 			return mcp.NewToolResultError("项目尚未初始化，请先执行 initialize_project。"), nil
 		}
-			sm.ensureFresh()
+		sm.ensureFresh()
 
 		// 默认方向
 		if args.Direction == "" {
 			args.Direction = "backward"
 		}
 
+		// 支持与 flow_trace 一致的 "file:func" qualified 语法（便于用户精确定位，避免同名符号歧义如 get_db 在 .claude 废弃 vs 当前 query_v2）
+		parsedSym, parsedF := parseFlowTraceTarget(args.SymbolName)
+		effectiveQuery := args.SymbolName
+		if parsedF != "" && parsedSym != "" {
+			effectiveQuery = parsedF + ":" + parsedSym
+		}
+
 		// 1. AST 静态分析 (硬调用)
-		astResult, err := ai.Analyze(sm.ProjectRoot, args.SymbolName, args.Direction)
+		astResult, err := ai.Analyze(sm.ProjectRoot, effectiveQuery, args.Direction)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("AST 分析失败: %v", err)), nil
 		}
@@ -919,48 +941,52 @@ func wrapImpact(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerF
 			return mcp.NewToolResultText(errorMessage), nil
 		}
 
-		// 2. 精简输出 (面向 LLM 决策)
-		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("## `%s` 影响分析\n\n", args.SymbolName))
-		sb.WriteString(fmt.Sprintf("**风险**: %s | **复杂度**: %.0f | **影响节点**: %d\n\n",
-			astResult.RiskLevel, astResult.ComplexityScore, astResult.AffectedNodes))
-
-		// 直接调用者列表
-		if len(astResult.DirectCallers) > 0 {
-			sb.WriteString("### 直接调用者（修改前必须检查）\n")
-			limit := 10
-			if len(astResult.DirectCallers) < limit {
-				limit = len(astResult.DirectCallers)
-			}
-			for i := 0; i < limit; i++ {
-				c := astResult.DirectCallers[i]
-				sb.WriteString(fmt.Sprintf("- `%s` @ %s:%d\n", c.Node.Name, c.Node.FilePath, c.Node.LineStart))
-			}
-			if len(astResult.DirectCallers) > limit {
-				sb.WriteString(fmt.Sprintf("- ... 还有 %d 个\n", len(astResult.DirectCallers)-limit))
-			}
-		} else {
-			sb.WriteString("✅ 无直接调用者，可安全修改\n")
-		}
-
-		// 间接调用者列表（前20个，BFS已按距离排序）
-		if len(astResult.IndirectCallers) > 0 {
-			sb.WriteString(fmt.Sprintf("\n### 间接影响（%d 个函数）\n", len(astResult.IndirectCallers)))
-			indirectLimit := 20
-			if len(astResult.IndirectCallers) < indirectLimit {
-				indirectLimit = len(astResult.IndirectCallers)
-			}
-			for i := 0; i < indirectLimit; i++ {
-				c := astResult.IndirectCallers[i]
-				sb.WriteString(fmt.Sprintf("- `%s` @ %s:%d\n", c.Node.Name, c.Node.FilePath, c.Node.LineStart))
-			}
-			if len(astResult.IndirectCallers) > indirectLimit {
-				sb.WriteString(fmt.Sprintf("- ... 还有 %d 个\n", len(astResult.IndirectCallers)-indirectLimit))
-			}
-		}
-
-		return mcp.NewToolResultText(sb.String()), nil
+		return mcp.NewToolResultText(renderImpactAlarm(args.SymbolName, astResult)), nil
 	}
+}
+
+func renderImpactAlarm(symbolName string, astResult *services.ImpactResult) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("## `%s` 改动风险报警\n\n", symbolName))
+	sb.WriteString("> 这是基于静态索引的报警面板，不是完整影响范围证明；有明显风险时，改之前先看这些点。\n\n")
+	sb.WriteString(fmt.Sprintf("**风险**: %s | **复杂度**: %.0f | **影响节点**: %d\n\n",
+		astResult.RiskLevel, astResult.ComplexityScore, astResult.AffectedNodes))
+
+	// 直接调用者列表
+	if len(astResult.DirectCallers) > 0 {
+		sb.WriteString("### 明显风险点（改前优先检查）\n")
+		limit := 10
+		if len(astResult.DirectCallers) < limit {
+			limit = len(astResult.DirectCallers)
+		}
+		for i := 0; i < limit; i++ {
+			c := astResult.DirectCallers[i]
+			sb.WriteString(fmt.Sprintf("- `%s` @ %s:%d\n", c.Node.Name, c.Node.FilePath, c.Node.LineStart))
+		}
+		if len(astResult.DirectCallers) > limit {
+			sb.WriteString(fmt.Sprintf("- ... 还有 %d 个\n", len(astResult.DirectCallers)-limit))
+		}
+	} else {
+		sb.WriteString("✅ 未发现明显静态调用者；这表示当前索引未报警，不等于修改一定安全。\n")
+	}
+
+	// 间接调用者列表（前20个，BFS已按距离排序）
+	if len(astResult.IndirectCallers) > 0 {
+		sb.WriteString(fmt.Sprintf("\n### 间接风险线索（%d 个函数）\n", len(astResult.IndirectCallers)))
+		indirectLimit := 20
+		if len(astResult.IndirectCallers) < indirectLimit {
+			indirectLimit = len(astResult.IndirectCallers)
+		}
+		for i := 0; i < indirectLimit; i++ {
+			c := astResult.IndirectCallers[i]
+			sb.WriteString(fmt.Sprintf("- `%s` @ %s:%d\n", c.Node.Name, c.Node.FilePath, c.Node.LineStart))
+		}
+		if len(astResult.IndirectCallers) > indirectLimit {
+			sb.WriteString(fmt.Sprintf("- ... 还有 %d 个\n", len(astResult.IndirectCallers)-indirectLimit))
+		}
+	}
+
+	return sb.String()
 }
 
 func wrapProjectMap(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerFunc {
@@ -1018,6 +1044,7 @@ func wrapProjectMap(sm *SessionManager, ai *services.ASTIndexer) server.ToolHand
 			var sb strings.Builder
 			sb.WriteString("### 🗺️ 项目地图 (Structure)\n\n")
 			sb.WriteString(fmt.Sprintf("**📊 统计**: %d 文件 | %d 目录\n\n", structureResult.TotalFiles, len(dirs)))
+			sb.WriteString("> 这是目录导航锚点，用于减少盲目遍历；不是完整代码清单。请按任务风险和信息量，按需阅读关键源码片段。\n\n")
 			if scope != "" {
 				sb.WriteString(fmt.Sprintf("**🔎 Scope**: `%s`\n\n", scope))
 			}
