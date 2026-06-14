@@ -64,6 +64,7 @@ PROJECT_EVALUATION_REPORT*.md
 # Dev logs (do not commit)
 dev-log.md
 dev-log-archive/
+Dev-SSOT/
 
 # Tool-generated files (do not commit)
 visualize_history.py

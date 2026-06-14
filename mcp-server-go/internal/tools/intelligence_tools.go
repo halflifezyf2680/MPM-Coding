@@ -877,7 +877,14 @@ func handleFactAdd(ctx context.Context, sm *SessionManager, args FactArgs) (*mcp
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("保存事实失败: %v", err)), nil
 		}
-		return mcp.NewToolResultText(fmt.Sprintf("✅ 事实已存入数据库 (ID: %d): [%s] %s", id, factType, args.Summarize)), nil
+		var suffix string
+		signal, err := persistFactLinesToFiles(sm.ProjectRoot, []string{formatFactLine(factType, args.Summarize)})
+		if err != nil {
+			suffix = fmt.Sprintf("\n⚠️ 事实持久化失败: %v", err)
+		} else if signal != "" {
+			suffix = "\n" + signal
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("✅ 事实已存入数据库 (ID: %d): [%s] %s%s", id, factType, args.Summarize, suffix)), nil
 	}
 
 	id, err := sm.Memory.SaveKnownFact(ctx, core.KnownFact{
@@ -1054,8 +1061,7 @@ func handleFactAfterAction(ctx context.Context, sm *SessionManager, args FactArg
 		sb.WriteString("\nNo fact changes were recorded.\n")
 	}
 
-
-	// 持久化到 .claude/CLAUDE.md + 项目级 AGENTS.md
+	// 持久化到根目录 CLAUDE.md + .claude/CLAUDE.md + 项目级 AGENTS.md
 	if len(updated) > 0 || len(created) > 0 {
 		signal, err := persistFactsToFiles(sm.ProjectRoot, args)
 		if err != nil {
@@ -1077,7 +1083,7 @@ const (
 	factSectionEndMarker  = "<!-- MPM_KNOWN_FACTS_END -->"
 )
 
-// persistFactsToFiles 将事实持久化到 .claude/CLAUDE.md 和项目级 AGENTS.md。
+// persistFactsToFiles 将事实持久化到根目录 CLAUDE.md、.claude/CLAUDE.md 和项目级 AGENTS.md。
 // 返回阈值信号（供 AI 客户端执行去重/压缩）和可能的错误。
 func persistFactsToFiles(projectRoot string, args FactArgs) (string, error) {
 	if projectRoot == "" {
@@ -1092,22 +1098,32 @@ func persistFactsToFiles(projectRoot string, args FactArgs) (string, error) {
 		if obs == "" {
 			continue
 		}
-		obs = truncateRunes(obs, factMaxEntryRunes)
 		if result == "failure" || result == "corrected" {
-			additions = append(additions, fmt.Sprintf("- [pitfall] %s", obs))
+			additions = append(additions, formatFactLine("pitfall", obs))
 		} else {
-			additions = append(additions, fmt.Sprintf("- [success_pattern] %s", obs))
+			additions = append(additions, formatFactLine("success_pattern", obs))
 		}
 	}
 
 	if len(additions) == 0 {
 		return "", nil
 	}
+	return persistFactLinesToFiles(projectRoot, additions)
+}
 
+func formatFactLine(factType, summarize string) string {
+	return fmt.Sprintf("- [%s] %s", strings.TrimSpace(factType), truncateRunes(strings.TrimSpace(summarize), factMaxEntryRunes))
+}
+
+func persistFactLinesToFiles(projectRoot string, additions []string) (string, error) {
+	if projectRoot == "" || len(additions) == 0 {
+		return "", nil
+	}
 	targets := []struct {
 		path string
 		name string
 	}{
+		{filepath.Join(projectRoot, "CLAUDE.md"), "CLAUDE.md"},
 		{filepath.Join(projectRoot, ".claude", "CLAUDE.md"), "CLAUDE.md"},
 		{filepath.Join(projectRoot, "AGENTS.md"), "AGENTS.md"},
 	}
@@ -1350,7 +1366,6 @@ func factScopeFromContext(ctx FactContext) string {
 	}
 	return "project"
 }
-
 
 func knownFactStrategyLines(ctx FactContext, facts []scoredFact) []string {
 	var lines []string

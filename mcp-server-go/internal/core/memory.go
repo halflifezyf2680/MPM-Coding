@@ -6,9 +6,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -303,32 +305,39 @@ func (m *MemoryLayer) AddMemos(ctx context.Context, items []Memo) ([]int64, erro
 func (m *MemoryLayer) SearchMemos(ctx context.Context, keywords string, category string, limit int) ([]Memo, error) {
 	query := "SELECT id, category, entity, act, path, content, session_id, timestamp FROM memos WHERE 1=1"
 	var args []interface{}
+	words := recallKeywords(keywords)
 
 	if category != "" {
 		query += " AND category = ?"
 		args = append(args, category)
 	}
 
-	if keywords != "" {
+	if len(words) > 0 {
 		// 宽进严出：支持空格和逗号拆分关键词，实现逻辑或(OR)匹配
-		keywords = strings.ReplaceAll(keywords, ",", " ")
-		words := strings.Fields(keywords)
-		if len(words) > 0 {
-			var orConditions []string
-			for _, word := range words {
-				orConditions = append(orConditions, "(content LIKE ? OR entity LIKE ? OR act LIKE ?)")
-				pattern := "%" + word + "%"
-				args = append(args, pattern, pattern, pattern)
-			}
-			query += " AND (" + strings.Join(orConditions, " OR ") + ")"
+		var orConditions []string
+		for _, word := range words {
+			orConditions = append(orConditions, "(content LIKE ? OR entity LIKE ? OR act LIKE ?)")
+			pattern := "%" + word + "%"
+			args = append(args, pattern, pattern, pattern)
 		}
+		query += " AND (" + strings.Join(orConditions, " OR ") + ")"
 	}
 
 	query += " ORDER BY timestamp DESC LIMIT ?"
 	if limit <= 0 {
 		limit = 20
 	}
-	args = append(args, limit)
+	sqlLimit := limit
+	if len(words) > 1 {
+		sqlLimit = limit * 4
+		if sqlLimit < 20 {
+			sqlLimit = 20
+		}
+		if sqlLimit > 100 {
+			sqlLimit = 100
+		}
+	}
+	args = append(args, sqlLimit)
 
 	// DEBUG: Log the final query and args
 	debugPath := filepath.Join(m.projectRoot, DataDirName, "recall_debug.log")
@@ -353,7 +362,112 @@ func (m *MemoryLayer) SearchMemos(ctx context.Context, keywords string, category
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("遍历搜索结果失败: %w", err)
 	}
-	return memos, nil
+	return rankAndPruneMemos(memos, words, limit), nil
+}
+
+type scoredMemo struct {
+	memo  Memo
+	score float64
+}
+
+func recallKeywords(keywords string) []string {
+	keywords = strings.ReplaceAll(keywords, ",", " ")
+	raw := strings.Fields(strings.ToLower(keywords))
+	seen := make(map[string]bool, len(raw))
+	var words []string
+	for _, w := range raw {
+		w = strings.TrimSpace(w)
+		if w == "" || seen[w] {
+			continue
+		}
+		seen[w] = true
+		words = append(words, w)
+	}
+	return words
+}
+
+func rankAndPruneMemos(memos []Memo, words []string, limit int) []Memo {
+	if limit <= 0 {
+		limit = 20
+	}
+	if len(words) == 0 || len(memos) <= 1 {
+		if len(memos) > limit {
+			return memos[:limit]
+		}
+		return memos
+	}
+
+	var scored []scoredMemo
+	bestScore := 0.0
+	for _, memo := range memos {
+		score := scoreMemoRecall(memo, words)
+		if score <= 0 {
+			continue
+		}
+		if score > bestScore {
+			bestScore = score
+		}
+		scored = append(scored, scoredMemo{memo: memo, score: score})
+	}
+	if len(scored) == 0 {
+		return nil
+	}
+
+	minScore := math.Max(2.0, bestScore*0.45)
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].score == scored[j].score {
+			return scored[i].memo.Timestamp.After(scored[j].memo.Timestamp)
+		}
+		return scored[i].score > scored[j].score
+	})
+
+	var out []Memo
+	for _, item := range scored {
+		if item.score < minScore {
+			continue
+		}
+		out = append(out, item.memo)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func scoreMemoRecall(memo Memo, words []string) float64 {
+	entity := strings.ToLower(memo.Entity)
+	act := strings.ToLower(memo.Act)
+	path := strings.ToLower(memo.Path)
+	content := strings.ToLower(memo.Content)
+
+	matches := 0
+	score := 0.0
+	for _, word := range words {
+		wordScore := 0.0
+		if strings.Contains(entity, word) {
+			wordScore += 2.0
+		}
+		if strings.Contains(act, word) {
+			wordScore += 1.5
+		}
+		if strings.Contains(path, word) {
+			wordScore += 1.0
+		}
+		if strings.Contains(content, word) {
+			wordScore += 1.0
+		}
+		if wordScore > 0 {
+			matches++
+			score += wordScore
+		}
+	}
+	if matches == 0 {
+		return 0
+	}
+	coverage := float64(matches) / float64(len(words))
+	score += float64(matches-1) * 1.25
+	score *= 0.5 + coverage
+	return score
 }
 
 // SyncDevLog 同步更新 dev-log.md

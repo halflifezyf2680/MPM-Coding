@@ -148,3 +148,28 @@ func TestKnownFactsTool_StrategyLifecycle(t *testing.T) {
 		t.Fatalf("maintain output unexpected: %s", maintainText)
 	}
 }
+
+func TestKnownFactsLegacyAddPersistsGlobalFactToRootClaude(t *testing.T) {
+	sm := newTestMemorySession(t)
+
+	text := callKnownFactsTool(t, sm, map[string]any{
+		"type":      "铁律",
+		"summarize": "全局事实必须同步到根目录 CLAUDE.md",
+	})
+	if !strings.Contains(text, "事实已存入数据库") {
+		t.Fatalf("legacy output unexpected: %s", text)
+	}
+
+	rootClaude := filepath.Join(sm.ProjectRoot, "CLAUDE.md")
+	content, err := os.ReadFile(rootClaude)
+	if err != nil {
+		t.Fatalf("expected root CLAUDE.md to be written: %v", err)
+	}
+	got := string(content)
+	if !strings.Contains(got, "MPM Known Facts") {
+		t.Fatalf("expected Known Facts section in root CLAUDE.md, got:\n%s", got)
+	}
+	if !strings.Contains(got, "- [铁律] 全局事实必须同步到根目录 CLAUDE.md") {
+		t.Fatalf("expected saved fact in root CLAUDE.md, got:\n%s", got)
+	}
+}
