@@ -17,10 +17,10 @@
 
 ```
 定位 ──▶ 分析 ──▶ 执行 ──▶ 记录
-code_search  code_impact  task_chain  memo
+code_search  code_impact  memo
 ```
 - **短任务**：`code_search → code_impact → 改代码 → memo`
-- **长任务**：中间加 `task_chain`，阻塞时用 `system_hook`
+- **被阻塞**：用 `system_hook` 挂起
 
 ### 1.1 AST 索引
 
@@ -72,13 +72,12 @@ MPM 的工具不是给 AI 做 IDE 的事——补全、跳转、重命名，AI �
 | 4 | `flow_trace` | 导航 | 调用链追踪 + 副作用检测 + 阶段分析 |
 | 5 | `code_search` | 导航 | 5 层降级符号定位 + ripgrep 深度上下文反查 |
 | 6 | `code_impact` | 安全 | BFS 链路发现 + Dice Random Walk 复杂度评分 |
-| 7 | `task_chain` | 执行 | 状态机任务链（门控 + 自动推进 + 续传） |
-| 8 | `system_hook` | 执行 | 阻塞挂起 / 恢复 |
-| 9 | `memo` | 记忆 | 变更记录（SSOT + 灾难恢复） |
-| 10 | `system_recall` | 记忆 | 搜索历史（Memo + 经验事实表，fact 优先展示） |
-| 11 | `persona` | 增强 | AI 人格切换 |
-| 12 | `open_timeline` | 增强 | 项目演进时间线可视化 |
-| 13 | `ensure_languages` | 系统 | 扫描项目文件扩展名，下载缺失的 tree-sitter grammar |
+| 7 | `system_hook` | 执行 | 阻塞挂起 / 恢复 |
+| 8 | `memo` | 记忆 | 变更记录（SSOT + 灾难恢复） |
+| 9 | `system_recall` | 记忆 | 搜索历史（Memo + 经验事实表，fact 优先展示） |
+| 10 | `persona` | 增强 | AI 人格切换 |
+| 11 | `open_timeline` | 增强 | 项目演进时间线可视化 |
+| 12 | `ensure_languages` | 系统 | 扫描项目文件扩展名，下载缺失的 tree-sitter grammar |
 
 ---
 
@@ -279,64 +278,6 @@ Ripgrep 文本搜索 + GetSymbolAtLine 反查
 
 ---
 
-### 2.7 task_chain
-
-**状态机驱动的自迭代任务体系。** 不是简单的步骤列表——init 定义阶段和门控，AI 自主推进，gate 失败自动回退重试，人只在关键节点做检查。
-
-**核心机制**：
-
-- **声明式阶段** — init 时定义 phase 目标和验收标准，AI 在阶段内享有执行自由
-- **gate 门控** — gate 阶段必须 result="pass" 才推进；fail 时检查 on_fail 路由：有配置则跳转到指定阶段并重置其状态（不是简单重试当前 gate，而是回到前阶段重新执行）；无配置则重试当前 gate。超过 max_retries（默认 3）标记任务失败
-- **loop 循环** — spawn 子任务批量分发，逐个 complete_sub，全部完成后自动 passed
-- **自动推进** — init 自动 start 首阶段，spawn 自动 start 首子任务，complete_sub 自动 start 下一个 pending 子任务。AI 只需调 complete，系统自动推进下一步
-- **update 运行时调整** — 目标变了？update 修改 description 或替换未完成阶段，已完成的永远保留
-- **跨会话续传** — resume 从 SQLite 恢复断点（阶段状态、子任务进度、已完成 summary），会话断了进度不丢
-- **re-init 守卫** — 同一 task_id 被 init 两次以上时直接报错，强制 AI 停下来向用户说明。防止死循环
-
-**mode 参数**：
-
-| mode | 说明 | 必要参数 |
-|------|------|----------|
-| `init` | 初始化 | `task_id`, `description`, `protocol` 或 `phases` |
-| `update` | 修改目标 | `task_id`, `description`/`phases` |
-| `start` | 开始阶段 | `task_id`, `phase_id` |
-| `complete` | 完成阶段 | `task_id`, `phase_id`, `summary` |
-| `spawn` | 分发子任务 | `task_id`, `phase_id`, `sub_tasks` |
-| `complete_sub` | 完成子任务 | `task_id`, `phase_id`, `sub_id` |
-| `status` | 查看进度 | `task_id` |
-| `resume` | 恢复任务 | `task_id` |
-| `finish` | 关闭任务链 | `task_id` |
-
-**内置协议**：
-
-| 协议 | 阶段 | 场景 |
-|------|------|------|
-| `linear` | main | 一步到位的确定性任务 |
-| `develop` | implement → verify_gate → finalize | 功能开发 |
-| `debug` | fix → verify_gate → finalize | Bug 修复 |
-| `refactor` | refactor → verify_gate → finalize | 重构 |
-
-gate 阶段需要 `result="pass"` 或 `result="fail"`。fail 会触发 on_fail 路由或重试。
-
-**示例**：
-```javascript
-// 初始化（自动 start 首阶段 implement）
-task_chain(mode="init", task_id="AUTH", protocol="develop", description="新增 OAuth2")
-
-// 完成实现
-task_chain(mode="complete", task_id="AUTH", phase_id="implement", summary="流程已实现")
-
-// 通过验收
-task_chain(mode="complete", task_id="AUTH", phase_id="verify_gate", result="pass", summary="测试通过")
-
-// 收尾
-task_chain(mode="complete", task_id="AUTH", phase_id="finalize", summary="完成")
-```
-
-**实战场景**：规划好完整的任务体系后，让能力强的模型自己跑。睡前启动一个 `develop` 协议链——从实现、验证到收尾，每个阶段有 gate 门控把关，失败自动重试或回退，跑偏自己拉回来。第二天醒来 `task_chain(mode="status")` 看结果。网络问题导致会话断了？没事 `resume` 从断点续传，不丢失进度。这就是 task_chain 的真正价值：**让 AI 能独立完成多步长任务，人只做检查**。
-
----
-
 ### 2.8 system_hook
 
 任务阻塞时的挂起/恢复机制。
@@ -423,7 +364,6 @@ memo(items=[{
 |------|------|
 | 读取 | `system_recall` 带关键词时自动命中 fact 表：active 过滤 + 类型优先（铁律/避坑先于 success_pattern）+ 命中加权排序 + 每条一行截断 + 尾部附文件路径（需要细节时自行 Read）；空关键词不碰 fact |
 | 写入① | `memo` 可选字段 `fact_observations`：落库后 append candidate 行 |
-| 写入② | task_chain gate fail 返回尾部单行提示（程序化失败信号驱动，不依赖自觉） |
 | 治理 | active > 20 时 recall 返回警告行；去重/压缩/翻状态交给 git code review 与脚本 |
 
 `known_facts` 策略引擎（before/after_action 四模式 + 置信度演化 + fact_events 审计）已移除：实测三个月零调用，演化产物无消费出口，自报 reward 闭环不可信。
@@ -493,12 +433,8 @@ flow_trace(symbol_name="internal/service/user.go")   → 文件模式，自动�
 
 ### 3.4 长任务
 
-```
-task_chain(mode="init", protocol="develop")     → 初始化（自动start首阶段）
+（task_chain 已下架：长任务规划与验收由客户端 goal 模式承担；MPM 专注定位/影响/记录/经验层。）
 (执行阶段工作)
-task_chain(mode="complete", phase_id="1", ...)  → 完成阶段（自动推进下一步）
-(重复直到所有阶段完成)
-task_chain(mode="finish")                       → 关闭
 ```
 
 ### 3.5 经验积累

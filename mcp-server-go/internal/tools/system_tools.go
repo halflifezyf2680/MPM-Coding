@@ -150,10 +150,9 @@ type InitArgs struct {
 }
 
 type SessionManager struct {
-	Memory       *core.MemoryLayer
-	ProjectRoot  string
-	Version      string                 // injected via ldflags at build time
-	TaskChainsV3 map[string]*TaskChainV3 // 协议状态机任务链
+	Memory      *core.MemoryLayer
+	ProjectRoot string
+	Version     string // injected via ldflags at build time
 
 	mu         sync.Mutex
 	watcher    *services.FileWatcher

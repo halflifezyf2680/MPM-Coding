@@ -200,26 +200,6 @@ func (m *DatabaseManager) healSchema() error {
 			summary TEXT,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
-		`CREATE TABLE IF NOT EXISTS task_chains (
-			task_id TEXT PRIMARY KEY,
-			description TEXT,
-			protocol TEXT DEFAULT 'linear',
-			status TEXT DEFAULT 'running',
-			phases_json TEXT,
-			current_phase TEXT,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`,
-		`CREATE TABLE IF NOT EXISTS task_chain_events (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			task_id TEXT NOT NULL,
-			phase_id TEXT,
-			sub_id TEXT,
-			event_type TEXT NOT NULL,
-			payload TEXT,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (task_id) REFERENCES task_chains(task_id)
-		)`,
 	}
 
 	for _, s := range schemas {
@@ -233,8 +213,6 @@ func (m *DatabaseManager) healSchema() error {
 		sql  string
 		name string
 	}{
-		{"ALTER TABLE task_chains ADD COLUMN reinit_count INTEGER DEFAULT 0", "reinit_count"},
-		{"ALTER TABLE task_chains ADD COLUMN plan_state TEXT", "plan_state"},
 	}
 	for _, mig := range migrations {
 		err := with_sqlite_busy_retry(func() error {
@@ -260,7 +238,6 @@ func (m *DatabaseManager) healSchema() error {
 		"CREATE INDEX IF NOT EXISTS idx_memos_entity ON memos(entity)",
 		"CREATE INDEX IF NOT EXISTS idx_memos_category ON memos(category)",
 		"CREATE INDEX IF NOT EXISTS idx_memos_timestamp ON memos(timestamp DESC)",
-		"CREATE INDEX IF NOT EXISTS idx_task_chain_events_task ON task_chain_events(task_id, created_at)",
 	}
 	for _, idx := range indexes {
 		if _, err := m.db.Exec(idx); err != nil {

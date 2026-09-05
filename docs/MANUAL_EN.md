@@ -17,10 +17,10 @@
 
 ```
 Locate ──▶ Analyze ──▶ Execute ──▶ Record
-code_search  code_impact  task_chain  memo
+code_search  code_impact  memo
 ```
 - **Short tasks**: `code_search -> code_impact -> edit -> memo`
-- **Long tasks**: add `task_chain` in the middle; use `system_hook` when blocked
+- **Blocked**: suspend with `system_hook`
 
 ### 1.1 AST Indexing
 
@@ -72,13 +72,12 @@ This is **attention convergence**: from "guessing files" to "querying symbols", 
 | 4 | `flow_trace` | Navigation | Call chain tracing + side effect detection + stage analysis |
 | 5 | `code_search` | Navigation | 5-layer degradation symbol lookup + ripgrep deep context reverse lookup |
 | 6 | `code_impact` | Safety | BFS chain discovery + Dice Random Walk complexity scoring |
-| 7 | `task_chain` | Execution | State-machine task chain (gates + auto-advancement + resume) |
-| 8 | `system_hook` | Execution | Block suspend / resume |
-| 9 | `memo` | Memory | Change record (SSOT + disaster recovery) |
-| 10 | `system_recall` | Memory | Search history (Memo + experience fact table, facts shown first) |
-| 11 | `persona` | Enhancement | AI personality switching |
-| 12 | `open_timeline` | Enhancement | Project evolution timeline visualization |
-| 13 | `ensure_languages` | System | Scan project file extensions, download missing tree-sitter grammars |
+| 7 | `system_hook` | Execution | Block suspend / resume |
+| 8 | `memo` | Memory | Change record (SSOT + disaster recovery) |
+| 9 | `system_recall` | Memory | Search history (Memo + experience fact table, facts shown first) |
+| 10 | `persona` | Enhancement | AI personality switching |
+| 11 | `open_timeline` | Enhancement | Project evolution timeline visualization |
+| 12 | `ensure_languages` | System | Scan project file extensions, download missing tree-sitter grammars |
 
 ---
 
@@ -279,64 +278,6 @@ Occam's razor principle: no evidence, no report. Avoids over-generalization.
 
 ---
 
-### 2.7 task_chain
-
-**State-machine-driven self-iterating task system.** Not a simple step list -- init defines phases and gates, AI drives itself forward, gate failures auto-rollback and retry, humans only inspect at key checkpoints.
-
-**Core mechanisms**:
-
-- **Declarative phases** -- init defines phase goals and acceptance criteria; AI has full execution freedom within each phase
-- **Gate checkpoints** -- gate phases require result="pass" to proceed; on fail, checks on_fail routing: if configured, jumps to the specified phase and resets its state (not simply retrying the current gate, but going back to a previous phase to re-execute); if unconfigured, retries the current gate. Exceeding max_retries (default 3) marks the task as failed
-- **Loop phases** -- spawn subtasks in batch, complete_sub one by one, auto-passed when all complete
-- **Auto-advancement** -- init auto-starts the first phase, spawn auto-starts the first subtask, complete_sub auto-starts the next pending subtask. AI only needs to call complete, the system auto-advances to the next step
-- **Runtime adjustment via update** -- Goal changed? update modifies description or replaces unfinished phases; completed phases are always preserved
-- **Cross-session resume** -- resume restores from SQLite (phase state, subtask progress, completed summaries). Session breaks don't lose progress
-- **Re-init guard** -- When the same task_id is init-ed more than once, an error is thrown immediately, forcing the AI to stop and explain to the user. Prevents infinite loops
-
-**mode parameters**:
-
-| mode | Description | Required params |
-|------|-------------|-----------------|
-| `init` | Initialize | `task_id`, `description`, `protocol` or `phases` |
-| `update` | Modify goal | `task_id`, `description`/`phases` |
-| `start` | Begin phase | `task_id`, `phase_id` |
-| `complete` | Complete phase | `task_id`, `phase_id`, `summary` |
-| `spawn` | Dispatch subtasks | `task_id`, `phase_id`, `sub_tasks` |
-| `complete_sub` | Complete subtask | `task_id`, `phase_id`, `sub_id` |
-| `status` | View progress | `task_id` |
-| `resume` | Resume task | `task_id` |
-| `finish` | Close chain | `task_id` |
-
-**Built-in protocols**:
-
-| Protocol | Phases | Use case |
-|----------|--------|----------|
-| `linear` | main | One-shot deterministic tasks |
-| `develop` | implement -> verify_gate -> finalize | Feature development |
-| `debug` | fix -> verify_gate -> finalize | Bug fixes |
-| `refactor` | refactor -> verify_gate -> finalize | Refactoring |
-
-Gate phases require `result="pass"` or `result="fail"`. Fail triggers on_fail routing or retry.
-
-**Example**:
-```javascript
-// Initialize (auto-starts first phase implement)
-task_chain(mode="init", task_id="AUTH", protocol="develop", description="Add OAuth2")
-
-// Complete implementation
-task_chain(mode="complete", task_id="AUTH", phase_id="implement", summary="Flow implemented")
-
-// Pass gate
-task_chain(mode="complete", task_id="AUTH", phase_id="verify_gate", result="pass", summary="Tests pass")
-
-// Finalize
-task_chain(mode="complete", task_id="AUTH", phase_id="finalize", summary="Done")
-```
-
-**Real-world scenario**: Plan the full task chain upfront, then let a capable model run on its own. Start a `develop` protocol chain before bed -- from implementation through verification to finalization, each phase has a gate that blocks on failure, auto-retries or rolls back, and self-corrects when drifting off track. Next morning, check results with `task_chain(mode="status")`. Session broke due to network? No problem -- `resume` picks up from the checkpoint, no progress lost. This is task_chain's true value: **let AI independently complete multi-step tasks, humans only inspect results**.
-
----
-
 ### 2.8 system_hook
 
 Suspend/resume mechanism for blocked tasks.
@@ -423,7 +364,6 @@ Design principle: **zero automatic evolution** — status (active/candidate/reje
 |-------|-----------|
 | Read | `system_recall` hits the fact table when keywords are present: active filter + type priority (rules/pitfalls before success patterns) + hit-weighted ranking + one line per fact + file path appended (Read it yourself for details); empty keywords skip facts |
 | Write 1 | `memo` optional field `fact_observations`: appends candidate rows after saving |
-| Write 2 | task_chain gate fail appends a single hint line (programmatic failure signal, no reliance on self-initiative) |
 | Governance | recall warns when active rows exceed 20; dedup/compaction/status flips belong to git code review and scripts |
 
 The `known_facts` strategy engine (before/after_action modes + confidence evolution + fact_events audit) has been removed: zero real-world calls in three months, evolution outputs had no consumer, and the self-reported reward loop was unreliable.
@@ -493,13 +433,7 @@ flow_trace(symbol_name="internal/service/user.go")          -> file mode, auto-f
 
 ### 3.4 Long tasks
 
-```
-task_chain(mode="init", protocol="develop")     -> initialize (auto-starts first phase)
-(do the phase work)
-task_chain(mode="complete", phase_id="1", ...)  -> complete phase (auto-advances to next)
-(repeat until all phases done)
-task_chain(mode="finish")                       -> close
-```
+(task_chain removed: long-horizon planning and verification now belong to client-side goal modes; MPM focuses on locate / impact / record / experience.)
 
 ### 3.5 Experience Accumulation
 

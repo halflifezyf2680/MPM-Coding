@@ -134,7 +134,6 @@ MPM 解决的是另一个问题：**如何用最少的 token 让 AI 精确理解
 
 | 工具 | 干什么 |
 |------|--------|
-| `task_chain` | 长任务？拆成阶段，每阶段有门控验收。会话断了也能续。 |
 | `system_hook` | 被阻塞？挂个钩子，条件满足后再继续。 |
 
 ### 记忆
@@ -195,7 +194,6 @@ mcp-server-go/
 | 怎么找函数/类？ | `code_search` |
 | 改代码前怎么查影响范围？ | `code_impact` |
 | 怎么看懂一个模块的调用链？ | `flow_trace` |
-| 长任务怎么可靠执行？ | `task_chain` |
 | 大仓库索引进度怎么看？ | `index_status` |
 | 怎么强制全量索引？ | `initialize_project(force_full_index=true)` |
 

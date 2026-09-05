@@ -77,7 +77,6 @@ This is **attention convergence**: the AI no longer needs to blindly search thro
 
 | Tool | What it does |
 |------|-------------|
-| `task_chain` | Long task? Split into phases with gate checks. Survives session restarts. |
 | `system_hook` | Blocked? Hang a hook, come back later when conditions are met. |
 
 ### Memory
@@ -205,7 +204,6 @@ mcp-server-go/
 | How to find a function/class? | `code_search` |
 | How to check impact before editing? | `code_impact` |
 | How to understand a module's call chain? | `flow_trace` |
-| How to run a long task reliably? | `task_chain` |
 | How to check index build progress? | `index_status` |
 | How to force full re-index? | `initialize_project(force_full_index=true)` |
 

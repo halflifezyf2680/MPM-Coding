@@ -30,20 +30,6 @@ type SystemHookArgs struct {
 	ResultSummary string `json:"result_summary" jsonschema:"description=完成总结 (release)"`
 }
 
-// TaskChainArgs 任务链参数
-type TaskChainArgs struct {
-	Mode        string      `json:"mode" jsonschema:"required,enum=init,enum=resume,enum=start,enum=complete,enum=spawn,enum=complete_sub,enum=finish,enum=status,enum=protocol,enum=update, description=操作模式"`
-	TaskID      string      `json:"task_id" jsonschema:"required,description=任务ID"`
-	Description string      `json:"description" jsonschema:"description=任务描述 (init模式)"`
-	Protocol    string      `json:"protocol" jsonschema:"description=协议名称 (init模式，如 develop/debug/refactor，不传则默认 linear)"`
-	PhaseID     string      `json:"phase_id" jsonschema:"description=阶段ID (start/complete/spawn/complete_sub模式)"`
-	Result      string      `json:"result" jsonschema:"description=gate结果 pass/fail (complete gate模式) 或子任务结果 (complete_sub模式)"`
-	Summary     string      `json:"summary" jsonschema:"description=步骤/阶段/子任务总结 (complete/complete_sub模式)"`
-	SubID       string      `json:"sub_id" jsonschema:"description=子任务ID (complete_sub模式)"`
-	SubTasks    interface{} `json:"sub_tasks" jsonschema:"description=子任务列表 (spawn模式)"`
-	Phases      interface{} `json:"phases" jsonschema:"description=手动定义阶段列表 (init模式)"`
-}
-
 // RegisterTaskTools 注册任务管理工具
 func RegisterTaskTools(s *server.MCPServer, sm *SessionManager) {
 	// Hook (统一工具)
@@ -83,71 +69,6 @@ func RegisterTaskTools(s *server.MCPServer, sm *SessionManager) {
 		mcp.WithInputSchema[SystemHookArgs](),
 	), wrapSystemHook(sm))
 
-	// Task Chain - 状态机任务链
-	s.AddTool(mcp.NewTool("task_chain",
-		mcp.WithDescription(`task_chain - 任务链执行器 (声明式目标管理模式)
-
-用途：
-  管理长周期、宏观多步任务的流转。支持门控(gate)安全回滚与跨会话断点续传。
-
-声明式设计 (黄金法则):
-  - ‼️ 目标与验收: Phase 仅用于定义【宏观里程碑】的目标(input)和验收标准(verify)。禁止上报微碎原子操作(如:搜一个词、改一行代码)。
-  - 过程脱钩: AI 在 Phase 内部享有绝对执行自由，可连续自由调用专家工具，无需中途频繁打卡。仅在您认为完全达成验收标准后，调用 complete 结算。
-
-参数速查：
-  mode          必填参数
-  ──────────────────────────────────────────────────────────────────────
-  init          task_id, description [, protocol|phases]
-  update        task_id [, description] [, phases]    ← 修改任务目标，保留已完成阶段
-  start         task_id, phase_id
-  complete      task_id, phase_id, summary [, result(gate必填)]
-  spawn         task_id, phase_id, sub_tasks          ← loop阶段生成子任务
-  complete_sub  task_id, phase_id, sub_id, summary [, result]
-  status        task_id (仅查看状态)
-  resume        task_id (从DB恢复并查看状态)
-  finish        task_id (任务彻底结束)
-  protocol      (无必填参数) 列出可用协议模板
-
-phases 参数结构 (init/update 时手动定义阶段):
-  [{id, name?, type?, input?, verify?, on_pass?, on_fail?, max_retries?}]
-  - id: 阶段唯一标识 (必填)
-  - name: 显示名称 (缺省=id)
-  - type: "execute"(默认) | "gate" | "loop"
-  - input: 目标描述
-  - verify: 验收标准
-  - on_pass / on_fail: gate专用，通过/失败后跳转的阶段ID
-  - max_retries: gate最大重试次数 (默认3)
-
-sub_tasks 参数结构 (spawn 时定义子任务):
-  [{id?, name, verify?}]
-  - id: 子任务标识 (缺省自动生成 sub_NNN)
-  - name: 子任务名称 (必填)
-  - verify: 验收标准
-
-阶段类型说明:
-  - execute: 普通执行阶段，complete 时只需 summary
-  - gate: 门控检查点，complete 时必须传 result="pass"|"fail"。失败后根据 on_fail 回退，重试达上限则任务失败
-  - loop: 循环阶段，先 spawn 子任务，再逐个 complete_sub。全部子任务完成后 loop 自动标记 passed
-
-内置协议 (init 时 protocol 参数):
-  - linear(默认): 单阶段线性执行
-  - develop: 实现 → 验收gate → 收尾
-  - debug: 排查修复 → 回归gate → 收尾
-  - refactor: 重构 → 回归gate → 收尾
-
-update mode: 原地修改任务目标，安全且低成本。
-  - 只传 description → 仅更新任务描述（轻量，适合目标微调）
-  - 传 phases → 替换未完成阶段（适合结构需要调整时）
-  - 已完成的阶段永远保留，不会丢失进度
-  什么时候该用 update（而不是继续执行）:
-  - 下一个阶段的验收标准(verify)已经不适用当前发现
-  - 原计划缺少必要的阶段（如需要增加排查步骤或额外的 gate）
-  - 任务目标本身需要收缩或扩展
-
-触发词：
-  "mpm 任务链", "mpm 续传", "mpm chain"`),
-		mcp.WithInputSchema[TaskChainArgs](),
-	), wrapTaskChain(sm))
 }
 
 func wrapSystemHook(sm *SessionManager) server.ToolHandlerFunc {
@@ -231,104 +152,7 @@ func wrapSystemHook(sm *SessionManager) server.ToolHandlerFunc {
 	}
 }
 
-func wrapTaskChain(sm *SessionManager) server.ToolHandlerFunc {
-	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var args TaskChainArgs
-		if err := request.BindArguments(&args); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("参数错误: %v", err)), nil
-		}
-
-		switch args.Mode {
-		case "init":
-			return initTaskChainV3(ctx, sm, args)
-		case "spawn":
-			return spawnSubTasksV3(ctx, sm, args)
-		case "complete_sub":
-			return completeSubTaskV3(ctx, sm, args)
-		case "protocol":
-			return mcp.NewToolResultText(renderProtocolList()), nil
-		case "start":
-			return startPhaseV3(ctx, sm, args)
-		case "complete":
-			return completePhaseV3(ctx, sm, args)
-		case "status", "resume":
-			return resumeTaskChainV3(ctx, sm, args.TaskID)
-		case "finish":
-			_, _ = finishChainV3(ctx, sm, args.TaskID)
-			return mcp.NewToolResultText(fmt.Sprintf("\n══════════════════════════════════════════════════════════════\n                    【任务链完成】%s\n══════════════════════════════════════════════════════════════\n\n任务已标记为完成。\n\n下一步建议：\n  → 调用 memo 工具记录最终结果\n  → 向用户汇报任务完成\n", args.TaskID)), nil
-		case "update":
-			return updateTaskChainV3(ctx, sm, args)
-		default:
-			return mcp.NewToolResultError(fmt.Sprintf("未知模式: %s", args.Mode)), nil
-		}
-	}
-}
-
-func continueExecution() (*mcp.CallToolResult, error) {
-	directive := `
-══════════════════════════════════════════════════════════════
-                    【执行指令】上下文已恢复
-══════════════════════════════════════════════════════════════
-
-请回顾上方对话中的【行动纲领】，判断当前进度，然后：
-
-1️⃣ 如果有步骤尚未完成：
-   → 调用对应的专家工具执行下一步
-
-2️⃣ 如果所有步骤已完成：
-   → 调用 memo 工具记录最终结果
-   → 向用户汇报任务完成
-
-	3️⃣ 如果遇到问题无法继续：
-	   → 调用 system_hook(mode="create") 挂起任务
-
-══════════════════════════════════════════════════════════════
-`
-	return mcp.NewToolResultText("⚡ Context Recovered! " + directive), nil
-}
-
-// enhanceStepDescription 轻量意图解析：根据关键词补充执行细节
-func enhanceStepDescription(name string, step map[string]interface{}) string {
-	lowerName := strings.ToLower(name)
-
-	// project_map 模式推断
-	if strings.Contains(lowerName, "扫描") || strings.Contains(lowerName, "map") || strings.Contains(lowerName, "结构") {
-		if strings.Contains(lowerName, "核对") || strings.Contains(lowerName, "审核") || strings.Contains(lowerName, "对比") || strings.Contains(lowerName, "对齐") {
-			// 需要查看完整代码内容
-			return name + " (用 full 模式查看完整代码)"
-		}
-		if strings.Contains(lowerName, "浏览") || strings.Contains(lowerName, "快速") {
-			// 只需要概览
-			return name + " (用 overview 模式)"
-		}
-		// 默认用 standard
-		return name + " (用 standard 模式)"
-	}
-
-	// code_search 精度推断
-	if strings.Contains(lowerName, "搜索") || strings.Contains(lowerName, "定位") || strings.Contains(lowerName, "查找") {
-		if strings.Contains(lowerName, "函数") || strings.Contains(lowerName, "类") {
-			return name + " (设置 search_type=function)"
-		}
-		if strings.Contains(lowerName, "类") {
-			return name + " (设置 search_type=class)"
-		}
-	}
-
-	// code_impact 方向推断
-	if strings.Contains(lowerName, "影响") || strings.Contains(lowerName, "依赖") {
-		if strings.Contains(lowerName, "谁调用了") || strings.Contains(lowerName, "被哪里") {
-			return name + " (设置 direction=backward)"
-		}
-		if strings.Contains(lowerName, "调用了谁") || strings.Contains(lowerName, "会影响") {
-			return name + " (设置 direction=forward)"
-		}
-	}
-
-	// 默认返回原名称
-	return name
-}
-
+// truncateRunes 按字符数截断字符串
 func truncateRunes(s string, maxRunes int) string {
 	if maxRunes <= 0 {
 		return ""

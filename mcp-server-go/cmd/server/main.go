@@ -50,7 +50,7 @@ func main() {
 	tools.RegisterMemoryTools(s, sm)       // 备忘与检索
 	tools.RegisterSearchTools(s, sm, ai)   // 项目地图与搜索
 	tools.RegisterAnalysisTools(s, sm, ai) // 影响分析工具
-	tools.RegisterTaskTools(s, sm)             // 任务管理工具
+	tools.RegisterTaskTools(s, sm)             // 钩子工具
 	tools.RegisterEnhanceTools(s, sm)          // 增强工具 (persona)
 
 	fmt.Fprintf(os.Stderr, "[MCP-Go] MyProjectManager 正在启动...\n")

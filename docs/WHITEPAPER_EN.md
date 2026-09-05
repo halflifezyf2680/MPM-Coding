@@ -195,45 +195,11 @@ Wide keyword matching (substring across type/content/scope columns)
 
 Matching deliberately stays a wide bag-of-words: false positives are cheap (the consuming LLM skips them at a glance), misses are expensive (that experience never enters context). Semantic judgment belongs to the consumer; the pipeline only does traffic control.
 
-**Event-driven writes**: neither path relies on LLM self-initiative — `memo` optional field `fact_observations` (appends candidates after saving); task_chain gate failures append a single hint line (programmatic failure signal). Zero automatic status evolution: flips happen only via manual edits or scripts; pruning belongs to git code review.
+**Event-driven writes**: neither path relies on LLM self-initiative — `memo` optional field `fact_observations` (appends candidates after saving). Zero automatic status evolution: flips happen only via manual edits or scripts; pruning belongs to git code review.
 
 Design rationale: this structure replaces the confidence-evolution engine (before/after_action self-reported loop) — which saw zero real-world calls in three months and whose evolution outputs had no consumer. Per the WikiSkill ablation (arXiv 2608.27454), giving the execution agent direct access to the raw knowledge base lowers scores; execution context should consume curated artifacts — "active filter + type ranking + one-line truncation" is the lowest-cost compilation layer.
 
-## 7. task_chain: State Machine-Driven Task System
-
-### 7.1 Auto-Progression Design
-
-```
-init      → auto-start first phase
-spawn     → auto-start first sub-task
-complete_sub → auto-start next pending sub-task
-```
-
-The AI only needs to call complete; the system automatically advances to the next step. This reduces the number of calls and lowers the probability of errors.
-
-### 7.2 Gate Failure: Route Fallback, Not Simple Retry
-
-```
-gate failed → RetryCount++
-           → exceeded max_retries? → task marked as failed
-           → not exceeded?
-              → has on_fail? → jump to target phase, reset target phase state, clear summary
-              → no on_fail? → retry current gate
-```
-
-The on_fail route is not "re-run the gate," but "go back to a previous phase and re-execute." The fallback scope is determined by the phases definition at init time.
-
-### 7.3 Re-Init Self-Check Guard
-
-When the same task_id is init'd more than once, the system directly returns an error, forcing the AI to stop and explain to the user. This prevents the AI from repeatedly re-initing in an infinite loop.
-
-### 7.4 Cross-Session Resume
-
-Task state is persisted to SQLite. After a session interruption, `resume` restores the checkpoint from the database, including phase state, sub-task progress, and summaries of completed phases.
-
----
-
-## 8. File Watcher: Lazy Update Mode
+## 7. File Watcher: Lazy Update Mode
 
 ```
 File change → watcher detects (2000ms debounce) → marks staleFiles
@@ -245,7 +211,7 @@ This is not "rebuild index as soon as a file changes," but "mark dirty, wash whe
 
 ---
 
-## 9. Data Layer
+## 8. Data Layer
 
 ### 9.1 SQLite Configuration
 
@@ -289,7 +255,7 @@ Three-layer recovery strategy ensures that even if the SQLite file is corrupted,
 
 ---
 
-## 10. Path Safety
+## 9. Path Safety
 
 ### 10.1 Project Root Detection: 4-Level Strategy
 
@@ -325,7 +291,7 @@ When a `.mcp-data` directory is detected, automatically migrates to `.mpm-data`,
 
 ---
 
-## 11. project_map: Adaptive Output
+## 10. project_map: Adaptive Output
 
 ### 11.1 Directory Tree Expansion Strategy
 
@@ -353,7 +319,7 @@ When output exceeds 2000 characters, it is automatically saved to `.mpm-data/pro
 
 ---
 
-## 12. Tech Stack Detection
+## 11. Tech Stack Detection
 
 Recursively scans project files (max depth 8 levels), detecting 6 tech stacks, each with dedicated ignore directories:
 
@@ -370,7 +336,7 @@ Integrates `.gitignore` parsing to automatically exclude user-defined ignore dir
 
 ---
 
-## 13. Design Philosophy Summary
+## 12. Design Philosophy Summary
 
 MPM's engineering decisions follow three principles:
 
