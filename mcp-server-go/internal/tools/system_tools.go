@@ -148,6 +148,7 @@ func startAsyncIndexBuild(projectRoot string, ai *services.ASTIndexer, forceFull
 type InitArgs struct {
 	ProjectRoot    string `json:"project_root" jsonschema:"description=项目根路径 (绝对路径)"`
 	ForceFullIndex bool   `json:"force_full_index" jsonschema:"description=强制全量索引（禁用大仓库bootstrap策略，默认false）"`
+	SkipRules      bool   `json:"skip_rules" jsonschema:"description=跳过AGENTS.md协议注入（上下文已有MPM协议时使用，默认false）"`
 }
 
 type SessionManager struct {
@@ -265,14 +266,21 @@ func RegisterSystemTools(s *server.MCPServer, sm *SessionManager, ai *services.A
     项目根目录的绝对路径。如果留空，工具会尝试自动探测。
   force_full_index (可选)
     强制全量索引（禁用大仓库 bootstrap 策略）。默认 false。
+  skip_rules (可选)
+    跳过 AGENTS.md 协议注入。默认 false。
 
 说明：
   - 手动指定 project_root 时必须使用绝对路径。
-  - 初始化成功后，MPM 协议会自动注入项目根 AGENTS.md 顶部（marker 区段，幂等更新），客户端自动加载。
+  - 调用前先检查你的上下文/系统提示词中是否已包含 MPM 协议（如用户级
+    AGENTS.md 已有 MPM 工具协议）。若已包含，传 skip_rules=true 避免项目级
+    重复注入；若未包含，协议将注入项目根 AGENTS.md 顶部（marker 区段，
+    幂等更新），客户端自动加载。
 
 示例：
   initialize_project(project_root="D:/AI_Project/MyProject")
     -> 初始化指定路径的项目
+  initialize_project(project_root="D:/AI_Project/MyProject", skip_rules=true)
+    -> 上下文已有 MPM 协议，跳过项目级注入
 
 触发词：
   "mpm 初始化", "mpm init"`),
@@ -442,10 +450,16 @@ func wrapInit(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerFun
 			fmt.Printf("Warning: Failed to inject visualize_history.py: %v\n", err)
 		}
 
-		// 7. 将 MPM 协议注入 AGENTS.md 顶部（marker 区段，幂等），客户端自动加载，无需人工复制
-		var rulesMsg = "\n\n[NEW] MPM 协议已注入 AGENTS.md 顶部（marker 区段，重复初始化幂等更新，自定义规则请写在区段外）。"
-		if err := injectProjectRules(absRoot); err != nil {
-			rulesMsg = fmt.Sprintf("\n⚠️ MPM 协议注入 AGENTS.md 失败: %v", err)
+		// 7. 将 MPM 协议注入 AGENTS.md 顶部（marker 区段，幂等），客户端自动加载，无需人工复制。
+		// skip_rules：LLM 预判上下文已含 MPM 协议（如用户级 AGENTS.md）时跳过，避免双重注入稀释注意力。
+		var rulesMsg string
+		if args.SkipRules {
+			rulesMsg = "\n\n[SKIP] 已按 skip_rules 跳过 AGENTS.md 协议注入（判定上下文已包含 MPM 协议）。若误判，重新初始化并省略该参数即可补注入。"
+		} else {
+			rulesMsg = "\n\n[NEW] MPM 协议已注入 AGENTS.md 顶部（marker 区段，重复初始化幂等更新，自定义规则请写在区段外）。"
+			if err := injectProjectRules(absRoot); err != nil {
+				rulesMsg = fmt.Sprintf("\n⚠️ MPM 协议注入 AGENTS.md 失败: %v", err)
+			}
 		}
 
 		// 8. 异步启动索引，避免大项目初始化阻塞/超时

@@ -93,6 +93,7 @@ MPM 的工具不是给 AI 做 IDE 的事——补全、跳转、重命名，AI �
 |------|------|------|------|
 | `project_root` | string | 否 | 项目根目录绝对路径，留空自动探测 |
 | `force_full_index` | boolean | 否 | 强制全量索引，默认 false |
+| `skip_rules` | boolean | 否 | 跳过 AGENTS.md 协议注入。LLM 调用前自查上下文：系统提示词已含 MPM 协议（如用户级 AGENTS.md）时传 true，避免双重注入，默认 false |
 
 **完整行为**：
 

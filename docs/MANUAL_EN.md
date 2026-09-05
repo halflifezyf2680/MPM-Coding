@@ -93,6 +93,7 @@ Initialize project environment. **Prerequisite for all other operations.**
 |-------|------|----------|-------------|
 | `project_root` | string | No | Absolute path to project root. Auto-detected if empty. |
 | `force_full_index` | boolean | No | Force full indexing. Default: false. |
+| `skip_rules` | boolean | No | Skip AGENTS.md protocol injection. Before calling, the LLM checks its own context: pass true if the system prompt already contains the MPM protocol (e.g. a user-level AGENTS.md) to avoid double injection. Default: false. |
 
 **Full behavior**:
 
