@@ -211,7 +211,7 @@ Every fact interaction (exposure/adopt/reject/add) records a `FactEvent`, includ
 
 ### 6.4 Auto-Persistence + Threshold Governance
 
-`after_action` automatically writes new observations to `.claude/CLAUDE.md` and the project-level `AGENTS.md`:
+`after_action` automatically writes new observations to the project-level `AGENTS.md`:
 
 - Uses marked sections (`## MPM Known Facts` ... `<!-- MPM_KNOWN_FACTS_END -->`)
 - Checks for content existence before writing (deduplication)

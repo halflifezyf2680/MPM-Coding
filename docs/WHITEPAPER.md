@@ -211,7 +211,7 @@ score = contextMatch * 0.45    // 上下文关键词匹配度
 
 ### 6.4 自动持久化 + 阈值治理
 
-`after_action` 将新观察自动写入 `.claude/CLAUDE.md` 和项目级 `AGENTS.md`：
+`after_action` 将新观察自动写入项目级 `AGENTS.md`：
 
 - 使用标记区间（`## MPM Known Facts` ... `<!-- MPM_KNOWN_FACTS_END -->`）
 - 写入前检查内容是否已存在（去重）

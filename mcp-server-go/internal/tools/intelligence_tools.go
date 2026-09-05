@@ -1061,7 +1061,7 @@ func handleFactAfterAction(ctx context.Context, sm *SessionManager, args FactArg
 		sb.WriteString("\nNo fact changes were recorded.\n")
 	}
 
-	// 持久化到根目录 CLAUDE.md + .claude/CLAUDE.md + 项目级 AGENTS.md
+	// 持久化到项目级 AGENTS.md（由客户端自动加载注入）
 	if len(updated) > 0 || len(created) > 0 {
 		signal, err := persistFactsToFiles(sm.ProjectRoot, args)
 		if err != nil {
@@ -1083,7 +1083,7 @@ const (
 	factSectionEndMarker  = "<!-- MPM_KNOWN_FACTS_END -->"
 )
 
-// persistFactsToFiles 将事实持久化到根目录 CLAUDE.md、.claude/CLAUDE.md 和项目级 AGENTS.md。
+// persistFactsToFiles 将事实持久化到项目级 AGENTS.md。
 // 返回阈值信号（供 AI 客户端执行去重/压缩）和可能的错误。
 func persistFactsToFiles(projectRoot string, args FactArgs) (string, error) {
 	if projectRoot == "" {
@@ -1119,32 +1119,11 @@ func persistFactLinesToFiles(projectRoot string, additions []string) (string, er
 	if projectRoot == "" || len(additions) == 0 {
 		return "", nil
 	}
-	targets := []struct {
-		path string
-		name string
-	}{
-		{filepath.Join(projectRoot, "CLAUDE.md"), "CLAUDE.md"},
-		{filepath.Join(projectRoot, ".claude", "CLAUDE.md"), "CLAUDE.md"},
-		{filepath.Join(projectRoot, "AGENTS.md"), "AGENTS.md"},
+	prevCount, newCount, err := writeFactSection(filepath.Join(projectRoot, "AGENTS.md"), additions)
+	if err != nil {
+		return "", fmt.Errorf("AGENTS.md: %v", err)
 	}
-
-	var signal string
-	var errs []string
-	for _, t := range targets {
-		prevCount, newCount, err := writeFactSection(t.path, additions)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s: %v", t.name, err))
-			continue
-		}
-		if s := checkFactSignal(prevCount, newCount); s != "" && signal == "" {
-			signal = s
-		}
-	}
-
-	if len(errs) > 0 {
-		return signal, fmt.Errorf("%s", strings.Join(errs, "; "))
-	}
-	return signal, nil
+	return checkFactSignal(prevCount, newCount), nil
 }
 
 // writeFactSection 将事实条目追加到单个 markdown 文件。

@@ -113,7 +113,7 @@ Point your MCP client at `mcp-server-go/bin/mpm-go(.exe)`, then:
 
 ```text
 1) initialize_project
-2) Paste _MPM_PROJECT_RULES.md into your client's system rules
+2) Nothing else — the MPM protocol is injected at the top of AGENTS.md in your project root and loaded by the client automatically
 3) Tell it what to do — the AI will follow the protocol automatically
 ```
 
@@ -126,8 +126,6 @@ That's it. The AI handles the tool orchestration. You make the decisions.
 Paste this into your MCP client:
 
 ```text
-Read _MPM_PROJECT_RULES.md and follow it strictly.
-
 Task: Fix the null pointer crash in UserService.getProfile.
 Requirements:
 1. Use code_search to locate the function

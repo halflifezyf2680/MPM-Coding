@@ -103,7 +103,7 @@ MPM 的工具不是给 AI 做 IDE 的事——补全、跳转、重命名，AI �
 5. **初始化记忆层**：`mcp_memory.db`（Memo / Known Facts / Task / Hook）
 6. **后台启动 AST 索引**：两阶段策略（全量优先 → 白名单降级），异步执行不阻塞
 7. **启动文件监控**：2000ms debounce，变更标记 stale，工具调用时触发增量索引
-8. **生成项目规则**：`_MPM_PROJECT_RULES.md`（MPM 协议规则模板），索引完成后后台刷新
+8. **注入项目协议**：将 MPM 协议以 marker 区段注入项目根 `AGENTS.md` 顶部（幂等替换，区段外内容不动），客户端自动加载
 
 **项目根探测**（留空时自动执行，4 级策略）：
 
@@ -456,7 +456,7 @@ score = contextMatch × 0.45    // 上下文关键词匹配度（最高权重）
 
 自动状态晋升：`confidence >= 0.75 && support >= 3` → active；`confidence < 0.25 && reject >= 2` → rejected。
 
-**自动持久化**：after_action 将新观察写入 `.claude/CLAUDE.md` 和项目级 `AGENTS.md`：
+**自动持久化**：after_action 将新观察写入项目级 `AGENTS.md`：
 - 使用标记区间定位（`## MPM Known Facts` ... `<!-- MPM_KNOWN_FACTS_END -->`）
 - 写入前检查内容是否已存在（去重）
 - `.tmp` + `os.Rename` 原子写入
@@ -517,7 +517,7 @@ AI 人格管理。
 
 ```
 1. initialize_project
-2. 把 _MPM_PROJECT_RULES.md 放进客户端系统规则
+2. MPM 协议自动注入 AGENTS.md 顶部，客户端自动加载
 3. 开始干活
 ```
 
@@ -591,7 +591,7 @@ Go、Rust、Python、TypeScript/JavaScript、Java、C/C++、HTML（结构符号�
 | 人类可读日志 | `.mpm-data/dev-log.md` |
 | JSONL 归档 | `.mpm-data/dev-log-archive/memo_archive.jsonl` |
 | 项目锚点 | `.mpm-data/project_config.json` |
-| 项目规则 | `_MPM_PROJECT_RULES.md` |
+| 项目协议 | 项目根 `AGENTS.md` 顶部 marker 区段 |
 | 大输出缓存 | `.mpm-data/project_map_*.md` |
 
 `.mpm-data/` 不提交到 git。

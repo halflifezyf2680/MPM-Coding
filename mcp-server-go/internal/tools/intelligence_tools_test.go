@@ -149,27 +149,29 @@ func TestKnownFactsTool_StrategyLifecycle(t *testing.T) {
 	}
 }
 
-func TestKnownFactsLegacyAddPersistsGlobalFactToRootClaude(t *testing.T) {
+func TestKnownFactsLegacyAddPersistsGlobalFactToAgentsMd(t *testing.T) {
 	sm := newTestMemorySession(t)
 
 	text := callKnownFactsTool(t, sm, map[string]any{
 		"type":      "铁律",
-		"summarize": "全局事实必须同步到根目录 CLAUDE.md",
+		"summarize": "全局事实必须同步到 AGENTS.md",
 	})
 	if !strings.Contains(text, "事实已存入数据库") {
 		t.Fatalf("legacy output unexpected: %s", text)
 	}
 
-	rootClaude := filepath.Join(sm.ProjectRoot, "CLAUDE.md")
-	content, err := os.ReadFile(rootClaude)
+	if _, err := os.Stat(filepath.Join(sm.ProjectRoot, "CLAUDE.md")); !os.IsNotExist(err) {
+		t.Fatalf("CLAUDE.md must not be written (anthropic ecosystem unsupported), stat err: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(sm.ProjectRoot, "AGENTS.md"))
 	if err != nil {
-		t.Fatalf("expected root CLAUDE.md to be written: %v", err)
+		t.Fatalf("expected AGENTS.md to be written: %v", err)
 	}
 	got := string(content)
 	if !strings.Contains(got, "MPM Known Facts") {
-		t.Fatalf("expected Known Facts section in root CLAUDE.md, got:\n%s", got)
+		t.Fatalf("expected Known Facts section in AGENTS.md, got:\n%s", got)
 	}
-	if !strings.Contains(got, "- [铁律] 全局事实必须同步到根目录 CLAUDE.md") {
-		t.Fatalf("expected saved fact in root CLAUDE.md, got:\n%s", got)
+	if !strings.Contains(got, "- [铁律] 全局事实必须同步到 AGENTS.md") {
+		t.Fatalf("expected saved fact in AGENTS.md, got:\n%s", got)
 	}
 }

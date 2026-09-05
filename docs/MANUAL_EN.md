@@ -103,7 +103,7 @@ Initialize project environment. **Prerequisite for all other operations.**
 5. **Initialize memory layer**: `mcp_memory.db` (Memo / Known Facts / Task / Hook)
 6. **Start AST index build in background**: Two-phase strategy (full index first -> whitelist fallback), executes asynchronously without blocking
 7. **Start file monitoring**: 2000ms debounce, changes marked as stale, triggers incremental indexing on next tool call
-8. **Generate project rules**: `_MPM_PROJECT_RULES.md` (MPM protocol rules template), refreshed in the background after indexing completes
+8. **Inject project protocol**: injects the MPM protocol as a marker-delimited block at the top of the project root `AGENTS.md` (idempotent replacement, content outside the block untouched), loaded automatically by clients
 
 **Project root detection** (auto-executed when left empty, 4-level strategy):
 
@@ -456,7 +456,7 @@ Updates fact confidence based on execution results -- Bayesian-style evolution:
 
 Auto-promotion: `confidence >= 0.75 && support >= 3` -> active; `confidence < 0.25 && reject >= 2` -> rejected.
 
-**Auto-persistence**: after_action writes new observations to `.claude/CLAUDE.md` and project-level `AGENTS.md`:
+**Auto-persistence**: after_action writes new observations to the project-level `AGENTS.md`:
 - Uses marker regions for locating (`## MPM Known Facts` ... `<!-- MPM_KNOWN_FACTS_END -->`)
 - Checks for duplicate content before writing (deduplication)
 - `.tmp` + `os.Rename` atomic write
@@ -517,7 +517,7 @@ Scans project file extensions and triggers tree-sitter grammar downloads. Usuall
 
 ```
 1. initialize_project
-2. Put _MPM_PROJECT_RULES.md into your client's system rules
+2. The MPM protocol is injected at the top of AGENTS.md automatically and loaded by the client
 3. Start working
 ```
 
@@ -591,7 +591,7 @@ Extracted symbol types: function, method, class, struct, interface, component, t
 | Human-readable log | `.mpm-data/dev-log.md` |
 | JSONL archive | `.mpm-data/dev-log-archive/memo_archive.jsonl` |
 | Project anchor | `.mpm-data/project_config.json` |
-| Project rules | `_MPM_PROJECT_RULES.md` |
+| Project protocol | Marker block at the top of project root `AGENTS.md` |
 | Large output cache | `.mpm-data/project_map_*.md` |
 
 `.mpm-data/` is never committed to git.

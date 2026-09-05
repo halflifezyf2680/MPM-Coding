@@ -64,7 +64,14 @@ func writeIndexStatus(projectRoot string, st index_build_status) {
 func buildTimelineOpenCommands(goos string, target string) []openCommandSpec {
 	switch goos {
 	case "windows":
+		// 关键修复：优先使用原生文件路径 + 系统文件关联（start / rundll32）。
+		// 这样对带空格、中文、特殊字符的项目路径更可靠，不会因为 file:/// + msedge --app 参数传递问题
+		// 而导致浏览器只打开主页（之前常见于非 MPM-Coding 项目的路径）。
+		// msedge --app 模式容易吞掉复杂本地路径参数，降为最后回退。
 		return []openCommandSpec{
+			{name: "cmd", args: []string{"/c", "start", "", target}},
+			{name: "cmd", args: []string{"/c", "rundll32", "url.dll,FileProtocolHandler", target}},
+			// 旧策略保留作为最后兼容回退（某些 file: 场景或用户偏好）
 			{name: "cmd", args: []string{"/c", "start", "", "msedge", fmt.Sprintf("--app=%s", target)}},
 			{name: "cmd", args: []string{"/c", "start", "", target}},
 		}
@@ -125,10 +132,6 @@ func startAsyncIndexBuild(projectRoot string, ai *services.ASTIndexer, forceFull
 			})
 			return
 		}
-
-		// 7. 直接生成项目协议
-		rulesPath := filepath.Join(root, "_MPM_PROJECT_RULES.md")
-		_ = generateProjectRules(rulesPath)
 
 		writeIndexStatus(root, index_build_status{
 			Status:     "success",
@@ -265,7 +268,7 @@ func RegisterSystemTools(s *server.MCPServer, sm *SessionManager, ai *services.A
 
 说明：
   - 手动指定 project_root 时必须使用绝对路径。
-  - 初始化成功后，会生成 _MPM_PROJECT_RULES.md 供 LLM 参考。
+  - 初始化成功后，MPM 协议会自动注入项目根 AGENTS.md 顶部（marker 区段，幂等更新），客户端自动加载。
 
 示例：
   initialize_project(project_root="D:/AI_Project/MyProject")
@@ -287,7 +290,7 @@ func RegisterSystemTools(s *server.MCPServer, sm *SessionManager, ai *services.A
 
 说明：
   - 基于 memo 记录生成 project_timeline.html。
-  - 会尝试自动在默认浏览器中打开生成的文件。
+  - 会尝试自动在默认浏览器中打开生成的文件（Windows 下已加强空格/中文等路径的兼容性，优先使用系统文件关联）。
 
 示例：
   open_timeline()
@@ -439,10 +442,11 @@ func wrapInit(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerFun
 			fmt.Printf("Warning: Failed to inject visualize_history.py: %v\n", err)
 		}
 
-		// 7. 立即写入一份规则模板，索引完成后会在后台自动刷新为真实统计
-		var rulesMsg = "\n\n[NEW] 已同步项目规则模板: _MPM_PROJECT_RULES.md\nIDE 将自动加载更新后的规则。"
-		rulesPath := filepath.Join(absRoot, "_MPM_PROJECT_RULES.md")
-		_ = generateProjectRules(rulesPath)
+		// 7. 将 MPM 协议注入 AGENTS.md 顶部（marker 区段，幂等），客户端自动加载，无需人工复制
+		var rulesMsg = "\n\n[NEW] MPM 协议已注入 AGENTS.md 顶部（marker 区段，重复初始化幂等更新，自定义规则请写在区段外）。"
+		if err := injectProjectRules(absRoot); err != nil {
+			rulesMsg = fmt.Sprintf("\n⚠️ MPM 协议注入 AGENTS.md 失败: %v", err)
+		}
 
 		// 8. 异步启动索引，避免大项目初始化阻塞/超时
 		startAsyncIndexBuild(absRoot, ai, args.ForceFullIndex)
@@ -459,8 +463,13 @@ func wrapInit(sm *SessionManager, ai *services.ASTIndexer) server.ToolHandlerFun
 	}
 }
 
-func generateProjectRules(path string) error {
-	mpmProtocol := `# MPM 强制协议
+const (
+	mpmRulesBeginMarker = "<!-- MPM_PROTOCOL_BEGIN: auto-managed by MPM, re-synced on initialize_project -->"
+	mpmRulesEndMarker   = "<!-- MPM_PROTOCOL_END -->"
+)
+
+// mpmProtocolBody 是注入 AGENTS.md 的 MPM 协议正文（无首尾 marker）。
+const mpmProtocolBody = `# MPM 强制协议
 
 ## 🚨 死规则 (违反即失败)
 
@@ -492,9 +501,48 @@ func generateProjectRules(path string) error {
 
 ---
 
-> **提示**: 如需修改规范，请直接编辑此文件。IDE 会自动读取更新后的内容。
+> 本区段由 MPM 在 initialize_project 时自动维护（marker 区段，重复初始化幂等更新）。
+> 自定义规则请写在 MPM_PROTOCOL_END 标记之外。本协议适用于代码修改任务。
 `
-	return os.WriteFile(path, []byte(mpmProtocol), 0644)
+
+// injectProjectRules 将 MPM 协议作为 marker 区段注入项目根 AGENTS.md 顶部，
+// 使客户端自动加载协议而无需人工复制。幂等：重复调用只替换 marker 区段，
+// 区段外的既有内容（含其他工具维护的区块）保持不变。
+func injectProjectRules(projectRoot string) error {
+	agentsPath := filepath.Join(projectRoot, "AGENTS.md")
+	existing, err := os.ReadFile(agentsPath)
+	content := string(existing)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("读取 AGENTS.md 失败: %w", err)
+	}
+
+	block := mpmRulesBeginMarker + "\n" + mpmProtocolBody + mpmRulesEndMarker + "\n"
+
+	var newContent string
+	if begin := strings.Index(content, mpmRulesBeginMarker); begin >= 0 {
+		// 已有区段：原位替换，区段前后内容不动。
+		// END marker 缺失（被手删）时重建到文件尾部，避免吞掉后续内容的判断歧义。
+		endOffset := len(content)
+		if end := strings.Index(content, mpmRulesEndMarker); end >= begin {
+			endOffset = end + len(mpmRulesEndMarker)
+		}
+		newContent = content[:begin] + block + content[endOffset:]
+	} else if content == "" {
+		newContent = block
+	} else {
+		// 首次注入：置于文件顶部，与既有内容空一行分隔。
+		trimmed := strings.TrimLeft(content, "\n")
+		newContent = block + "\n" + trimmed
+	}
+
+	tmpPath := agentsPath + ".tmp"
+	if err := os.WriteFile(tmpPath, []byte(newContent), 0644); err != nil {
+		return fmt.Errorf("写入临时文件失败: %w", err)
+	}
+	if err := os.Rename(tmpPath, agentsPath); err != nil {
+		return fmt.Errorf("重命名失败: %w", err)
+	}
+	return nil
 }
 
 func wrapIndexStatus(sm *SessionManager) server.ToolHandlerFunc {
@@ -677,9 +725,16 @@ func wrapOpenTimeline(sm *SessionManager) server.ToolHandlerFunc {
 		}
 
 		// 4. 打开浏览器
-		htmlURL := "file:///" + filepath.ToSlash(htmlPath)
-		if err := startTimelineTarget(htmlURL); err != nil {
-			return mcp.NewToolResultText(fmt.Sprintf("⚠️ Timeline 已生成但无法自动打开。\n路径: %s\n错误: %v", htmlPath, err)), nil
+		// 优先传递原生 OS 路径（而非 file:/// URL），配合 buildTimelineOpenCommands 的
+		// start + rundll32 策略，对任意项目路径（空格/中文等）更可靠。
+		// 仅在必要时才回退到 file URL。
+		if err := startTimelineTarget(htmlPath); err != nil {
+			// 回退尝试 file URL 版本（保留对旧行为的部分兼容）
+			fileURL := "file:///" + filepath.ToSlash(htmlPath)
+			if err2 := startTimelineTarget(fileURL); err2 == nil {
+				return mcp.NewToolResultText(fmt.Sprintf("✅ Timeline 已生成并尝试打开。\n文件: %s", htmlPath)), nil
+			}
+			return mcp.NewToolResultText(fmt.Sprintf("⚠️ Timeline 已生成但无法自动打开。\n路径: %s\n错误: %v\n提示：请手动用浏览器打开该 HTML 文件，或检查默认浏览器关联。", htmlPath, err)), nil
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("✅ Timeline 已生成并尝试打开。\n文件: %s", htmlPath)), nil

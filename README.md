@@ -60,7 +60,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1  # 或 ./scri
 
 ```text
 1) initialize_project
-2) 把生成的 _MPM_PROJECT_RULES.md 放进客户端系统规则
+2) 没有了——MPM 协议会自动注入项目根 AGENTS.md 顶部，客户端自动加载
 3) 直接提需求——AI 会自动按协议执行
 ```
 
@@ -71,8 +71,6 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1  # 或 ./scri
 把这段直接贴进 MCP 客户端：
 
 ```text
-读取 _MPM_PROJECT_RULES.md 并严格遵守。
-
 任务：修复 UserService.getProfile 的空指针崩溃。
 要求：
 1. 用 code_search 定位函数
