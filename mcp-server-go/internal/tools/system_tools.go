@@ -144,9 +144,9 @@ func startAsyncIndexBuild(projectRoot string, ai *services.ASTIndexer, forceFull
 
 // InitArgs 初始化参数
 type InitArgs struct {
-	ProjectRoot    string `json:"project_root" jsonschema:"description=项目根路径 (绝对路径)"`
-	ForceFullIndex bool   `json:"force_full_index" jsonschema:"description=强制全量索引（禁用大仓库bootstrap策略，默认false）"`
-	SkipRules      bool   `json:"skip_rules" jsonschema:"description=跳过AGENTS.md协议注入（上下文已有MPM协议时使用，默认false）"`
+	ProjectRoot    string `json:"project_root,omitempty" jsonschema:"description=项目根路径 (绝对路径，留空自动探测)"`
+	ForceFullIndex bool   `json:"force_full_index,omitempty" jsonschema:"description=强制全量索引（禁用大仓库bootstrap策略，默认false）"`
+	SkipRules      bool   `json:"skip_rules,omitempty" jsonschema:"description=跳过AGENTS.md协议注入（上下文已有MPM协议时使用，默认false）"`
 }
 
 type SessionManager struct {
@@ -211,8 +211,8 @@ func (sm *SessionManager) ensureFresh() {
 // SystemRecallArgs 历史召回参数
 type SystemRecallArgs struct {
 	Keywords string `json:"keywords" jsonschema:"required,description=检索关键词"`
-	Category string `json:"category" jsonschema:"description=过滤类型 (开发/重构/避坑等)"`
-	Limit    int    `json:"limit" jsonschema:"default=20,description=返回条数"`
+	Category string `json:"category,omitempty" jsonschema:"description=过滤类型 (开发/重构/避坑等)"`
+	Limit    int    `json:"limit,omitempty" jsonschema:"default=20,description=返回条数"`
 }
 
 // IndexStatusArgs 索引状态参数
