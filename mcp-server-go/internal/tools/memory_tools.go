@@ -23,8 +23,9 @@ type MemoItem struct {
 
 // MemoArgs 备忘录参数
 type MemoArgs struct {
-	Items []MemoItem `json:"items" jsonschema:"required,description=录入事项列表"`
-	Lang  string     `json:"lang" jsonschema:"enum=zh,enum=en,default=zh,description=当前用户对话的语言 (zh=中文, en=英文)"`
+	Items            []MemoItem `json:"items" jsonschema:"required,description=录入事项列表"`
+	Lang             string     `json:"lang" jsonschema:"enum=zh,enum=en,default=zh,description=当前用户对话的语言 (zh=中文, en=英文)"`
+	FactObservations []string   `json:"fact_observations,omitempty" jsonschema:"description=可选：可复用项目经验（每条一句），追加到项目根 known-facts.md 作 candidate。只写可复用经验（格式：在XX条件下应该/不应该YY），不写任务完成确认或流水账；没有就别填"`
 }
 
 // RegisterMemoryTools 注册备忘与检索工具
@@ -49,6 +50,10 @@ func RegisterMemoryTools(s *server.MCPServer, sm *SessionManager) {
   
   lang (可选，默认 zh): 
     记录语言，建议始终使用中文
+
+  fact_observations (可选):
+    本次修改揭示的可复用项目经验（每条一句），会追加到项目根 known-facts.md 作 candidate。
+    只写可复用经验（格式："在XX条件下应该/不应该YY"），不写任务完成确认或流水账；没有就别填。
 
 完整调用示例（JSON格式）：
   {
@@ -136,7 +141,16 @@ func wrapMemo(sm *SessionManager) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(fmt.Sprintf("保存备忘录失败： %v", err)), nil
 		}
 
-		return mcp.NewToolResultText(fmt.Sprintf("已成功录入 %d 条记录 (IDs: %v)。", len(ids), ids)), nil
+		result := fmt.Sprintf("已成功录入 %d 条记录 (IDs: %v)。", len(ids), ids)
+		if sm.ProjectRoot != "" && len(args.FactObservations) > 0 {
+			if written, ferr := appendFactObservations(sm.ProjectRoot, args.FactObservations); ferr != nil {
+				result += fmt.Sprintf(" ⚠️ fact 沉淀失败: %v", ferr)
+			} else if written > 0 {
+				result += fmt.Sprintf(" 已沉淀 %d 条 candidate 经验到 known-facts.md。", written)
+			}
+		}
+
+		return mcp.NewToolResultText(result), nil
 	}
 }
 

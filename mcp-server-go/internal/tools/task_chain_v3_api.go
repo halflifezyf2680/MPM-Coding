@@ -358,6 +358,10 @@ func completePhaseV3(ctx context.Context, sm *SessionManager, args TaskChainArgs
 		if retryInfo != "" {
 			sb.WriteString(fmt.Sprintf("⚠️ %s\n", retryInfo))
 		}
+		if args.Result == "fail" {
+			// 程序化失败信号驱动的沉淀提示：写入由 LLM 做语义归纳，触发不依赖自觉。
+			sb.WriteString("💡 若本次失败揭示了可复用避坑，请经 memo 的 fact_observations 字段沉淀为 candidate 经验。\n")
+		}
 		if nextID != "" {
 			sb.WriteString(renderV3NextPhaseHint(chain, args.TaskID, nextID))
 		} else if chain.IsFinished() {

@@ -21,10 +21,8 @@ import (
 )
 
 const (
-	headerKnownFacts = "## 📌 Known Facts (%d)\n\n"
-	headerMemos      = "## 📝 Memos (%d)\n\n"
-	formatFact       = "- **[%s]** %s _(ID: %d, %s)_\n"
-	formatMemo       = "- **[%d] %s** (%s) %s: %s\n"
+	headerMemos = "## 📝 Memos (%d)\n\n"
+	formatMemo  = "- **[%d] %s** (%s) %s: %s\n"
 )
 
 type index_build_status struct {
@@ -152,41 +150,15 @@ type InitArgs struct {
 }
 
 type SessionManager struct {
-	Memory        *core.MemoryLayer
-	ProjectRoot   string
-	Version       string                   // injected via ldflags at build time
-	TaskChainsV3  map[string]*TaskChainV3   // 协议状态机任务链
-	AnalysisState map[string]*AnalysisState // 历史遗留的分析状态缓存（兼容保留）
+	Memory       *core.MemoryLayer
+	ProjectRoot  string
+	Version      string                 // injected via ldflags at build time
+	TaskChainsV3 map[string]*TaskChainV3 // 协议状态机任务链
 
 	mu         sync.Mutex
 	watcher    *services.FileWatcher
 	ai         *services.ASTIndexer
 	staleFiles []string // watcher 回调写入，ensureFresh 消费
-}
-
-// AnalysisState 第一步分析结果（临时存储）
-type AnalysisState struct {
-	Intent         string                 `json:"intent"`
-	UserDirective  string                 `json:"user_directive"`
-	ContextAnchors []CodeAnchor           `json:"context_anchors"`
-	VerifiedFacts  []string               `json:"verified_facts"`
-	Telemetry      map[string]interface{} `json:"telemetry"`
-	Guardrails     Guardrails             `json:"guardrails"`
-	Alerts         []string               `json:"alerts"`
-}
-
-// CodeAnchor 代码锚点
-type CodeAnchor struct {
-	Symbol string `json:"symbol"`
-	File   string `json:"file"`
-	Line   int    `json:"line"`
-	Type   string `json:"type"`
-}
-
-// Guardrails 约束规则
-type Guardrails struct {
-	Critical []string `json:"critical"`
-	Advisory []string `json:"advisory"`
 }
 
 // StartWatcher 启动文件监控，在 initialize_project 成功后调用
@@ -497,6 +469,7 @@ const mpmProtocolBody = `# MPM 强制协议
 
 ## 🔧 工具使用时机
 
+- **上下文出现指向过去的信号**（如用户催促进度、质疑方法、"我记得…"、"又…"，或你在重复处理同类问题）: 先 ` + "`system_recall`" + ` 查相关经验（fact 表与历史 memo 一起命中）
 - **刚接手陌生项目且无任何代码线索 / 上下文过多需收敛注意力**: 使用 ` + "`project_map`" + ` / ` + "`flow_trace`" + `
 - **刚接手项目 / 宏观探索**: 使用 ` + "`project_map`" + `
 - **理解业务逻辑主链**: 使用 ` + "`flow_trace`" + `
@@ -772,32 +745,20 @@ func wrapSystemRecall(sm *SessionManager) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(fmt.Sprintf("检索 memos 失败: %v", err)), nil
 		}
 
-		// 2. 查询 Known Facts（铁律/避坑经验）
-		facts, err := sm.Memory.QueryFacts(ctx, args.Keywords, args.Limit)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("检索 known_facts 失败: %v", err)), nil
+		// 2. 查询 fact 表（项目根 known-facts.md，直读热加载；空关键词不碰 fact）
+		factSection := ""
+		if strings.TrimSpace(args.Keywords) != "" {
+			factSection = renderRecallFacts(sm.ProjectRoot, args.Keywords, args.Limit)
 		}
 
 		// 3. 检查是否有结果
-		if len(memos) == 0 && len(facts) == 0 {
+		if len(memos) == 0 && factSection == "" {
 			return mcp.NewToolResultText("未找到相关记录"), nil
 		}
 
 		// 4. 构建返回结果
 		var sb strings.Builder
-
-		// 输出 Known Facts
-		if len(facts) > 0 {
-			sb.WriteString(fmt.Sprintf(headerKnownFacts, len(facts)))
-			for _, f := range facts {
-				sb.WriteString(fmt.Sprintf(formatFact,
-					f.Type,
-					f.Summarize,
-					f.ID,
-					f.CreatedAt.Format("2006-01-02")))
-			}
-			sb.WriteString("\n")
-		}
+		sb.WriteString(factSection)
 
 		// 输出 Memos
 		if len(memos) > 0 {

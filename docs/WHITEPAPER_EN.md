@@ -177,48 +177,27 @@ Each impact analysis outputs structured Markdown: risk level, complexity score, 
 
 ---
 
-## 6. known_facts: Experience Strategy Engine
+## 6. Experience Fact Table: A Hot-Reloadable Open Knowledge Base
 
-### 6.1 Multi-Dimensional Weighted Scoring
+Experience facts use `known-facts.md` at the project root as the single source of truth: a four-column markdown table (status/type/content/scope), git-committed, human-readable, maintainable by external scripts.
 
-When `before_action` mode recalls relevant facts, each KnownFact is scored and ranked by the following formula:
+**Hot loading**: the read path reads the file directly on every tool call — writes take effect on the next round, with no index, no cache, no restart. Compared to cold injection (AGENTS.md read once at startup, writes invisible until relaunch), the fact library's update cycle drops from per-session to per-round.
+
+**Wide-in strict-out read pipeline** (`system_recall` fact branch):
 
 ```
-score = contextMatch * 0.45    // context keyword match degree
-      + confidence * 0.25      // fact confidence
-      + successRate * 0.20     // historical adoption success rate
-      + exploration * 0.10     // cold-start exploration bonus
-      - failurePenalty         // failure penalty
+Wide keyword matching (substring across type/content/scope columns)
+-> active status filter (candidate/rejected never enter execution context; flipping status is retirement)
+-> type-priority ranking (rules/pitfalls x10 + 1 per keyword hit, stable sort preserves manual table order)
+-> one line per fact (truncated at 120 runes), file path appended for on-demand Read
+-> maintenance warning when active > 20 (dead-zone design, hint only)
 ```
 
-The `exploration` term is calculated using `sqrt(log(totalHits+1)+1) / (hitCount+1)` -- encouraging high-quality obscure facts with low exposure but high global hit counts to surface.
+Matching deliberately stays a wide bag-of-words: false positives are cheap (the consuming LLM skips them at a glance), misses are expensive (that experience never enters context). Semantic judgment belongs to the consumer; the pipeline only does traffic control.
 
-### 6.2 Bayesian-Style Confidence Evolution
+**Event-driven writes**: neither path relies on LLM self-initiative — `memo` optional field `fact_observations` (appends candidates after saving); task_chain gate failures append a single hint line (programmatic failure signal). Zero automatic status evolution: flips happen only via manual edits or scripts; pruning belongs to git code review.
 
-`after_action` updates fact confidence based on results:
-
-| Scenario | Formula | Effect |
-|----------|---------|--------|
-| Adopted + Succeeded | `confidence += 0.10 * (1 - confidence)` | Exponential convergence toward 1.0, diminishing returns |
-| Adopted + Failed | `confidence -= 0.20 * confidence` | Rapid penalty, proportional shrinkage |
-| Not Adopted | `confidence -= 0.02 * confidence` | Mild decay, no false kills |
-
-Automatic state promotion: `confidence >= 0.75 && support >= 3` -> active; `confidence < 0.25 && reject >= 2` -> rejected.
-
-### 6.3 Event Audit Trail
-
-Every fact interaction (exposure/adopt/reject/add) records a `FactEvent`, including eventType, task_id, phase, context_signature, and payload_json. This forms a complete fact lifecycle audit chain.
-
-### 6.4 Auto-Persistence + Threshold Governance
-
-`after_action` automatically writes new observations to the project-level `AGENTS.md`:
-
-- Uses marked sections (`## MPM Known Facts` ... `<!-- MPM_KNOWN_FACTS_END -->`)
-- Checks for content existence before writing (deduplication)
-- Atomic write via `.tmp` + `os.Rename`
-- Dead zone threshold signals: >50 entries suggest deduplication, >70 entries suggest compression (only triggered when crossing upward, preventing oscillation)
-
----
+Design rationale: this structure replaces the confidence-evolution engine (before/after_action self-reported loop) — which saw zero real-world calls in three months and whose evolution outputs had no consumer. Per the WikiSkill ablation (arXiv 2608.27454), giving the execution agent direct access to the raw knowledge base lowers scores; execution context should consume curated artifacts — "active filter + type ranking + one-line truncation" is the lowest-cost compilation layer.
 
 ## 7. task_chain: State Machine-Driven Task System
 

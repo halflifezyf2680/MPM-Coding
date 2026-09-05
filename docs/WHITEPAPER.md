@@ -177,48 +177,27 @@ complexity = coverage × 0.5 + fanOut × 2.0 + fanIn × 1.0
 
 ---
 
-## 6. known_facts：经验策略引擎
+## 6. 经验事实表：热加载的开放知识库
 
-### 6.1 多维加权评分
+经验事实以项目根 `known-facts.md` 为唯一真相源：markdown 表格四列（状态/类型/内容/scope），进 git、人可读、外部脚本可维护。
 
-`before_action` 模式召回相关事实时，每个 KnownFact 按以下公式评分排序：
+**热加载**：读取工具每次调用直读文件——写入下一轮即生效，无索引、无缓存、无重启。对比冷注入（AGENTS.md 启动时读取一次，写入不生效），事实库的更新周期从"会话级"降到"轮次级"。
+
+**宽进严出的读取管道**（`system_recall` fact 分支）：
 
 ```
-score = contextMatch * 0.45    // 上下文关键词匹配度
-      + confidence * 0.25      // 事实置信度
-      + successRate * 0.20     // 历史采纳成功率
-      + exploration * 0.10     // 冷门探索奖励
-      - failurePenalty         // 失败惩罚
+关键词宽匹配（类型/内容/scope 三列 substring）
+→ active 状态过滤（candidate/rejected 不进执行上下文，翻状态即下架）
+→ 类型优先排序（铁律/避坑 ×10 + 每命中一词 +1，稳定排序保留表内人工序）
+→ 每条一行截断（120 runes），尾部附文件路径供按需 Read
+→ active > 20 附维护警告（死区设计，只提示不动作）
 ```
 
-其中 `exploration` 项使用 `sqrt(log(totalHits+1)+1) / (hitCount+1)` 计算——鼓励曝光少但全局命中多的高质量冷门事实浮出水面。
+匹配故意保持词袋宽进：误报便宜（消费端 LLM 扫一眼即忽略），漏报昂贵（该经验永远进不了上下文）。语义判断留给消费端，管道只做流量控制。
 
-### 6.2 贝叶斯式置信度演化
+**事件驱动的写入**：两条路径均不依赖 LLM 自觉——`memo` 可选字段 `fact_observations`（落库后 append candidate）；task_chain gate 失败时返回尾部单行沉淀提示（程序化失败信号）。状态零自动演化：翻状态只有人工、脚本两条路径，剪枝交给 git code review。
 
-`after_action` 根据结果更新事实置信度：
-
-| 场景 | 公式 | 效果 |
-|------|------|------|
-| 采纳 + 成功 | `confidence += 0.10 * (1 - confidence)` | 指数趋近 1.0，收敛递减 |
-| 采纳 + 失败 | `confidence -= 0.20 * confidence` | 快速惩罚，比例收缩 |
-| 未采纳 | `confidence -= 0.02 * confidence` | 微弱衰减，不误杀 |
-
-自动状态晋升：`confidence >= 0.75 && support >= 3` → active；`confidence < 0.25 && reject >= 2` → rejected。
-
-### 6.3 事件审计追踪
-
-每次事实交互（exposure/adopt/reject/add）都记录 `FactEvent`，包含 eventType、task_id、phase、context_signature 和 payload_json。构成完整的事实生命周期审计链。
-
-### 6.4 自动持久化 + 阈值治理
-
-`after_action` 将新观察自动写入项目级 `AGENTS.md`：
-
-- 使用标记区间（`## MPM Known Facts` ... `<!-- MPM_KNOWN_FACTS_END -->`）
-- 写入前检查内容是否已存在（去重）
-- `.tmp` + `os.Rename` 原子写入
-- 死区阈值信号：>50 条建议去重，>70 条建议压缩（只在向上跨越时触发，防止震荡）
-
----
+设计依据：该结构取代了置信度演化引擎（before/after_action 自报闭环）——后者实测三个月零调用、演化产物无消费出口。参考 WikiSkill（arXiv 2608.27454）的消融结论：执行 agent 直接访问原始知识库反而降分，执行上下文应消费精选产物而非全量库——"active 过滤 + 类型排序 + 一行截断"即最低成本的编译层。
 
 ## 7. task_chain：状态机驱动任务体系
 

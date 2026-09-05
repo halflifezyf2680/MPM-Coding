@@ -75,11 +75,10 @@ MPM 的工具不是给 AI 做 IDE 的事——补全、跳转、重命名，AI �
 | 7 | `task_chain` | 执行 | 状态机任务链（门控 + 自动推进 + 续传） |
 | 8 | `system_hook` | 执行 | 阻塞挂起 / 恢复 |
 | 9 | `memo` | 记忆 | 变更记录（SSOT + 灾难恢复） |
-| 10 | `system_recall` | 记忆 | 搜索历史记录（Memo + Known Facts） |
-| 11 | `known_facts` | 记忆 | 经验策略引擎（多维评分 + 置信度演化 + 事件审计） |
-| 12 | `persona` | 增强 | AI 人格切换 |
-| 13 | `open_timeline` | 增强 | 项目演进时间线可视化 |
-| 14 | `ensure_languages` | 系统 | 扫描项目文件扩展名，下载缺失的 tree-sitter grammar |
+| 10 | `system_recall` | 记忆 | 搜索历史（Memo + 经验事实表，fact 优先展示） |
+| 11 | `persona` | 增强 | AI 人格切换 |
+| 12 | `open_timeline` | 增强 | 项目演进时间线可视化 |
+| 13 | `ensure_languages` | 系统 | 扫描项目文件扩展名，下载缺失的 tree-sitter grammar |
 
 ---
 
@@ -101,7 +100,7 @@ MPM 的工具不是给 AI 做 IDE 的事——补全、跳转、重命名，AI �
 2. **旧版迁移**：检测到 `.mcp-data` 目录时自动迁移到 `.mpm-data`（rename 或 copy+fallback），迁移后留 `MIGRATED.txt`
 3. **技术栈检测**：递归扫描文件扩展名（最大深度 8 层），检测 Python / Frontend / Go / Rust / C++ / Java 六种技术栈，集成 `.gitignore` 解析忽略目录
 4. **创建数据目录**：`.mpm-data/`（SQLite 数据库 + 索引文件）
-5. **初始化记忆层**：`mcp_memory.db`（Memo / Known Facts / Task / Hook）
+5. **初始化记忆层**：`mcp_memory.db`（Memo / Task / Hook）；经验事实存项目根 `known-facts.md`
 6. **后台启动 AST 索引**：两阶段策略（全量优先 → 白名单降级），异步执行不阻塞
 7. **启动文件监控**：2000ms debounce，变更标记 stale，工具调用时触发增量索引
 8. **注入项目协议**：将 MPM 协议以 marker 区段注入项目根 `AGENTS.md` 顶部（幂等替换，区段外内容不动），客户端自动加载
@@ -410,71 +409,24 @@ memo(items=[{
 | `category` | string | 否 | 类型过滤（如 "避坑"、"开发"、"决策"） |
 | `limit` | int | 否 | 返回条数，默认 20 |
 
-**搜索范围**：Memo（变更记录）+ Known Facts（经验策略）。Known Facts 优先展示。
+**搜索范围**：Memo（变更记录）+ fact 表（known-facts.md，active 过滤 + 类型优先排序，每条一行）。fact 优先展示，空关键词只搜 Memo。
 
 ---
 
-### 2.11 known_facts
+### 2.11 已知事实表（known-facts.md）
 
-经验策略引擎。行动前召回经验、行动后回写结果并进化置信度。
+项目经验事实的唯一真相源：项目根 `known-facts.md`，markdown 表格四列（状态/类型/内容/scope），进 git、人可读、外部脚本可维护。
 
-旧式 `type + summarize` 保存仍兼容；新主路径是 `before_action → 执行 → after_action` 闭环。
+设计原则：**零自动演化**——状态（active/candidate/rejected）只由人工、脚本或 gate-fail 提示三条路径翻转；写入下一轮即生效（工具每次直读文件，无缓存无索引）。
 
-**参数**：
+| 环 | 机制 |
+|------|------|
+| 读取 | `system_recall` 带关键词时自动命中 fact 表：active 过滤 + 类型优先（铁律/避坑先于 success_pattern）+ 命中加权排序 + 每条一行截断 + 尾部附文件路径（需要细节时自行 Read）；空关键词不碰 fact |
+| 写入① | `memo` 可选字段 `fact_observations`：落库后 append candidate 行 |
+| 写入② | task_chain gate fail 返回尾部单行提示（程序化失败信号驱动，不依赖自觉） |
+| 治理 | active > 20 时 recall 返回警告行；去重/压缩/翻状态交给 git code review 与脚本 |
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `mode` | string | 否 | `before_action` / `after_action` / `maintain` / `status`；为空时兼容旧式保存 |
-| `type` | string | 否 | 事实类型：`pitfall` / `success_pattern` / `rule` / `constraint`，旧式保存时使用 |
-| `summarize` | string | 否 | 事实描述，旧式保存或 `mode=add` 时使用 |
-| `context` | object | 否 | 当前任务上下文：task、task_id、intent、phase、risk、files、symbols、tools |
-| `outcome` | object | 否 | `after_action` 使用：result、signal、summary、adopted_facts、rejected_facts、new_observations |
-| `limit` | int | 否 | 返回数量，默认 3 |
-
-**before_action（行动前召回）**：
-
-根据当前上下文（task/intent/phase/files/symbols/tools），从事实库召回相关 Known Facts，按多维加权评分排序：
-
-```
-score = contextMatch × 0.45    // 上下文关键词匹配度（最高权重）
-      + confidence × 0.25      // 事实置信度
-      + successRate × 0.20     // 历史采纳成功率
-      + exploration × 0.10     // 冷门探索奖励（曝光少但全局命中多的事实优先浮出）
-      - failurePenalty         // 失败惩罚
-```
-
-同时返回策略建议（基于 intent 和 risk 等级动态生成）。
-
-**after_action（行动后回写）**：
-
-根据执行结果更新事实置信度——贝叶斯式演化：
-
-| 场景 | 公式 | 效果 |
-|------|------|------|
-| 采纳 + 成功 | `confidence += 0.10 × (1 - confidence)` | 指数趋近 1.0，越高越难涨 |
-| 采纳 + 失败 | `confidence -= 0.20 × confidence` | 快速惩罚，比例收缩 |
-| 未采纳 | `confidence -= 0.02 × confidence` | 微弱衰减，不误杀 |
-
-自动状态晋升：`confidence >= 0.75 && support >= 3` → active；`confidence < 0.25 && reject >= 2` → rejected。
-
-**自动持久化**：after_action 将新观察写入项目级 `AGENTS.md`：
-- 使用标记区间定位（`## MPM Known Facts` ... `<!-- MPM_KNOWN_FACTS_END -->`）
-- 写入前检查内容是否已存在（去重）
-- `.tmp` + `os.Rename` 原子写入
-- 阈值治理：>50 条建议去重，>70 条建议压缩（死区设计，只向上跨越时触发）
-
-**事件审计**：每次事实交互（exposure/adopt/reject/add）都记录 `FactEvent`，包含 eventType、task_id、phase、context_signature 和 payload_json。完整的事实生命周期审计链。
-
-**`new_observations` 写入指引**：只写可复用经验（格式："在XX条件下应该/不应该YY"），不写任务完成确认（如"Successfully fixed..."）或操作流水账。
-
-**常用调用**：
-
-- `mode=before_action`：根据当前上下文返回 Relevant Known Facts 和 Strategy。
-- `mode=after_action`：根据结果强化/削弱事实，并把新观察写入 candidate。
-- `mode=status`：查看事实状态（置信度、采纳/拒绝次数、命中次数）。
-- `mode=maintain`：查看收敛维护建议（各状态数量统计）。
-
-`system_recall` 仍用于历史搜索，不承担 KnownFact 策略进化。
+`known_facts` 策略引擎（before/after_action 四模式 + 置信度演化 + fact_events 审计）已移除：实测三个月零调用，演化产物无消费出口，自报 reward 闭环不可信。
 
 ---
 
@@ -552,15 +504,13 @@ task_chain(mode="finish")                       → 关闭
 ### 3.5 经验积累
 
 ```
-// 行动前：召回相关经验
-known_facts(mode="before_action", context={task="...", intent="DEVELOP", ...})
+// 遇到熟悉的坑 / 用户催促进度："我记得之前处理过"
+system_recall(keywords="ble reconnect crash")
+  → 命中 fact 表 + 历史 memo（写入下一轮即生效，无需重启）
 
-// 行动后：回写结果
-known_facts(mode="after_action", outcome={
-  result: "success",
-  adopted_facts: [12],
-  new_observations: ["在XX条件下应该YY"]
-})
+// 任务完成 / gate 失败后：沉淀可复用经验
+memo(items=[{...}],
+  fact_observations=["在XX条件下应该YY"])   // 可选，append candidate 到 known-facts.md
 ```
 
 ### 3.6 被阻塞
@@ -588,7 +538,8 @@ Go、Rust、Python、TypeScript/JavaScript、Java、C/C++、HTML（结构符号�
 | 数据 | 位置 |
 |------|------|
 | AST 索引 | `.mpm-data/symbols.db` |
-| Memo/Task/Hook/KnownFacts | `.mpm-data/mcp_memory.db` |
+| Memo/Task/Hook | `.mpm-data/mcp_memory.db` |
+| 经验事实表 | 项目根 `known-facts.md`（进 git） |
 | 人类可读日志 | `.mpm-data/dev-log.md` |
 | JSONL 归档 | `.mpm-data/dev-log-archive/memo_archive.jsonl` |
 | 项目锚点 | `.mpm-data/project_config.json` |

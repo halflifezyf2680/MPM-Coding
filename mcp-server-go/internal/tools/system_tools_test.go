@@ -153,9 +153,9 @@ func TestInjectProjectRules(t *testing.T) {
 		}
 	})
 
-	t.Run("coexists with known_facts bottom section", func(t *testing.T) {
+	t.Run("coexists with arbitrary bottom sections", func(t *testing.T) {
 		root := t.TempDir()
-		existing := "# Project\n\n<!-- MPM Known Facts -->\n<!-- Auto-synced from MPM known_facts. Do not edit manually. -->\n- [rule] keep me\n<!-- MPM_KNOWN_FACTS_END -->\n"
+		existing := "# Project\n\n## Legacy Section\n- manual note kept by user\n"
 		if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(existing), 0644); err != nil {
 			t.Fatal(err)
 		}
@@ -163,11 +163,11 @@ func TestInjectProjectRules(t *testing.T) {
 			t.Fatal(err)
 		}
 		content := readAgents(root)
-		if !strings.Contains(content, "- [rule] keep me") {
-			t.Fatal("known_facts section must be preserved")
+		if !strings.Contains(content, "- manual note kept by user") {
+			t.Fatal("bottom section must be preserved")
 		}
-		if strings.Index(content, mpmRulesBeginMarker) > strings.Index(content, "<!-- MPM Known Facts -->") {
-			t.Fatal("MPM protocol block must sit above the known_facts section")
+		if strings.Index(content, mpmRulesBeginMarker) > strings.Index(content, "## Legacy Section") {
+			t.Fatal("MPM protocol block must sit above bottom sections")
 		}
 	})
 }

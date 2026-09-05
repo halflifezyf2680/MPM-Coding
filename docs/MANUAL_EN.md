@@ -75,11 +75,10 @@ This is **attention convergence**: from "guessing files" to "querying symbols", 
 | 7 | `task_chain` | Execution | State-machine task chain (gates + auto-advancement + resume) |
 | 8 | `system_hook` | Execution | Block suspend / resume |
 | 9 | `memo` | Memory | Change record (SSOT + disaster recovery) |
-| 10 | `system_recall` | Memory | Search history (Memo + Known Facts) |
-| 11 | `known_facts` | Memory | Experience strategy engine (multi-dimensional scoring + confidence evolution + event audit) |
-| 12 | `persona` | Enhancement | AI personality switching |
-| 13 | `open_timeline` | Enhancement | Project evolution timeline visualization |
-| 14 | `ensure_languages` | System | Scan project file extensions, download missing tree-sitter grammars |
+| 10 | `system_recall` | Memory | Search history (Memo + experience fact table, facts shown first) |
+| 11 | `persona` | Enhancement | AI personality switching |
+| 12 | `open_timeline` | Enhancement | Project evolution timeline visualization |
+| 13 | `ensure_languages` | System | Scan project file extensions, download missing tree-sitter grammars |
 
 ---
 
@@ -101,7 +100,7 @@ Initialize project environment. **Prerequisite for all other operations.**
 2. **Legacy migration**: When `.mcp-data` (old format) is detected, automatically migrates to `.mpm-data` (rename or copy+fallback), leaving `MIGRATED.txt` after migration
 3. **Tech stack detection**: Recursively scans file extensions (max depth 8 levels), detects 6 tech stacks (Python / Frontend / Go / Rust / C++ / Java), integrates `.gitignore` parsing to ignore directories
 4. **Create data directory**: `.mpm-data/` (SQLite databases + index files)
-5. **Initialize memory layer**: `mcp_memory.db` (Memo / Known Facts / Task / Hook)
+5. **Initialize memory layer**: `mcp_memory.db` (Memo / Task / Hook); experience facts live in `known-facts.md` at the project root
 6. **Start AST index build in background**: Two-phase strategy (full index first -> whitelist fallback), executes asynchronously without blocking
 7. **Start file monitoring**: 2000ms debounce, changes marked as stale, triggers incremental indexing on next tool call
 8. **Inject project protocol**: injects the MPM protocol as a marker-delimited block at the top of the project root `AGENTS.md` (idempotent replacement, content outside the block untouched), loaded automatically by clients
@@ -410,71 +409,24 @@ Search history. Check before modifying code to avoid repeating past mistakes.
 | `category` | string | No | Type filter (e.g. "pitfall", "development", "decision") |
 | `limit` | int | No | Max results. Default: 20 |
 
-**Search scope**: Memo (change records) + Known Facts (experience strategies). Known Facts shown first.
+**Search scope**: Memo (change records) + fact table (known-facts.md, active filter + type-priority ranking, one line each). Facts shown first; empty keywords search Memo only.
 
 ---
 
-### 2.11 known_facts
+### 2.11 Known Facts Table (known-facts.md)
 
-Experience strategy engine. Recall experience before action, write back results and evolve confidence after action.
+The single source of truth for project experience facts: `known-facts.md` in the project root, a four-column markdown table (status/type/content/scope), committed to git, human-readable, maintainable by external scripts.
 
-Legacy `type + summarize` saves are still supported; the new main path is the `before_action -> execute -> after_action` loop.
+Design principle: **zero automatic evolution** — status (active/candidate/rejected) only flips via manual edits, scripts, or the gate-fail hint; writes take effect on the next round (tools read the file directly every call, no cache, no index).
 
-**Parameters**:
+| Stage | Mechanism |
+|-------|-----------|
+| Read | `system_recall` hits the fact table when keywords are present: active filter + type priority (rules/pitfalls before success patterns) + hit-weighted ranking + one line per fact + file path appended (Read it yourself for details); empty keywords skip facts |
+| Write 1 | `memo` optional field `fact_observations`: appends candidate rows after saving |
+| Write 2 | task_chain gate fail appends a single hint line (programmatic failure signal, no reliance on self-initiative) |
+| Governance | recall warns when active rows exceed 20; dedup/compaction/status flips belong to git code review and scripts |
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `mode` | string | No | `before_action` / `after_action` / `maintain` / `status`; empty keeps legacy save behavior |
-| `type` | string | No | Fact type: `pitfall` / `success_pattern` / `rule` / `constraint`; used by legacy saves |
-| `summarize` | string | No | Fact description; used by legacy saves or `mode=add` |
-| `context` | object | No | Current task context: task, task_id, intent, phase, risk, files, symbols, tools |
-| `outcome` | object | No | Used by `after_action`: result, signal, summary, adopted_facts, rejected_facts, new_observations |
-| `limit` | int | No | Return limit. Default: 3 |
-
-**before_action (pre-action recall)**:
-
-Based on current context (task/intent/phase/files/symbols/tools), recalls relevant Known Facts from the fact database, sorted by multi-dimensional weighted scoring:
-
-```
-score = contextMatch * 0.45    // Context keyword match degree (highest weight)
-      + confidence * 0.25      // Fact confidence
-      + successRate * 0.20     // Historical adoption success rate
-      + exploration * 0.10     // Cold discovery bonus (under-exposed but globally frequently matched facts surface first)
-      - failurePenalty         // Failure penalty
-```
-
-Also returns strategy suggestions (dynamically generated based on intent and risk level).
-
-**after_action (post-action writeback)**:
-
-Updates fact confidence based on execution results -- Bayesian-style evolution:
-
-| Scenario | Formula | Effect |
-|----------|---------|--------|
-| Adopted + success | `confidence += 0.10 * (1 - confidence)` | Exponential approach to 1.0; harder to increase as it gets higher |
-| Adopted + failure | `confidence -= 0.20 * confidence` | Rapid proportional penalty |
-| Not adopted | `confidence -= 0.02 * confidence` | Weak decay; avoids false kills |
-
-Auto-promotion: `confidence >= 0.75 && support >= 3` -> active; `confidence < 0.25 && reject >= 2` -> rejected.
-
-**Auto-persistence**: after_action writes new observations to the project-level `AGENTS.md`:
-- Uses marker regions for locating (`## MPM Known Facts` ... `<!-- MPM_KNOWN_FACTS_END -->`)
-- Checks for duplicate content before writing (deduplication)
-- `.tmp` + `os.Rename` atomic write
-- Threshold governance: >50 entries suggests deduplication, >70 entries suggests compaction (dead zone design, only triggers on upward crossing)
-
-**Event audit**: Every fact interaction (exposure/adopt/reject/add) records a `FactEvent`, including eventType, task_id, phase, context_signature, and payload_json. A complete fact lifecycle audit chain.
-
-**`new_observations` writing guidelines**: Only write reusable experience (format: "When X, should/should not Y"). Do not write task completion confirmations (e.g. "Successfully fixed...") or action logs.
-
-**Common calls**:
-
-- `mode=before_action`: Returns Relevant Known Facts and Strategy based on current context.
-- `mode=after_action`: Strengthens/weakens facts based on results, and writes new observations to candidates.
-- `mode=status`: Shows fact state (confidence, adoption/rejection counts, hit counts).
-- `mode=maintain`: Shows convergence maintenance guidance (counts by state).
-
-`system_recall` remains a history search tool and does not own KnownFact strategy evolution.
+The `known_facts` strategy engine (before/after_action modes + confidence evolution + fact_events audit) has been removed: zero real-world calls in three months, evolution outputs had no consumer, and the self-reported reward loop was unreliable.
 
 ---
 
@@ -549,18 +501,16 @@ task_chain(mode="complete", phase_id="1", ...)  -> complete phase (auto-advances
 task_chain(mode="finish")                       -> close
 ```
 
-### 3.5 Experience accumulation
+### 3.5 Experience Accumulation
 
 ```
-// Before action: recall relevant experience
-known_facts(mode="before_action", context={task="...", intent="DEVELOP", ...})
+// Hitting a familiar pitfall / user pushing on progress: "I remember fixing this before"
+system_recall(keywords="ble reconnect crash")
+  -> hits the fact table + memo history (writes effective next round, no restart needed)
 
-// After action: write back results
-known_facts(mode="after_action", outcome={
-  result: "success",
-  adopted_facts: [12],
-  new_observations: ["When X, should Y"]
-})
+// After task completion / gate failure: deposit reusable experience
+memo(items=[{...}],
+  fact_observations=["Under condition X you should Y"])   // optional, appends candidate rows to known-facts.md
 ```
 
 ### 3.6 Blocked
@@ -588,7 +538,8 @@ Extracted symbol types: function, method, class, struct, interface, component, t
 | Data | Location |
 |------|----------|
 | AST index | `.mpm-data/symbols.db` |
-| Memo/Task/Hook/KnownFacts | `.mpm-data/mcp_memory.db` |
+| Memo/Task/Hook | `.mpm-data/mcp_memory.db` |
+| Experience fact table | `known-facts.md` at project root (git-committed) |
 | Human-readable log | `.mpm-data/dev-log.md` |
 | JSONL archive | `.mpm-data/dev-log-archive/memo_archive.jsonl` |
 | Project anchor | `.mpm-data/project_config.json` |

@@ -46,11 +46,10 @@ func main() {
 		"MyProjectManager-Go",
 		version,
 	)
-	tools.RegisterSystemTools(s, sm, ai)       // 系统初始化
-	tools.RegisterMemoryTools(s, sm)           // 备忘与检索
-	tools.RegisterSearchTools(s, sm, ai)       // 项目地图与搜索
-	tools.RegisterIntelligenceTools(s, sm, ai) // 任务分析与事实存档
-	tools.RegisterAnalysisTools(s, sm, ai)     // 影响分析工具
+	tools.RegisterSystemTools(s, sm, ai)   // 系统初始化
+	tools.RegisterMemoryTools(s, sm)       // 备忘与检索
+	tools.RegisterSearchTools(s, sm, ai)   // 项目地图与搜索
+	tools.RegisterAnalysisTools(s, sm, ai) // 影响分析工具
 	tools.RegisterTaskTools(s, sm)             // 任务管理工具
 	tools.RegisterEnhanceTools(s, sm)          // 增强工具 (persona)
 
